@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PNG → GIF</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root {
+  --bg: #f2f4f6; --card: #ffffff; --field: #f2f4f6; --field-hover: #e9ecef;
+  --g900: #191f28; --g800: #333d4b; --g700: #4e5968; --g600: #6b7684; --g500: #8b95a1; --g400: #b0b8c1; --g200: #e5e8eb;
+  --blue: #3182f6; --blue-press: #1b64da; --blue-soft: #e8f3ff; --red: #f04452; --red-soft: #ffeeee;
+  --chk1: #ffffff; --chk2: #f2f4f6;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101012; --card: #1c1c21; --field: #2c2c33; --field-hover: #35353d;
+    --g900: #f2f2f4; --g800: #dcdce0; --g700: #b3b3ba; --g600: #9696a0; --g500: #7d7d87; --g400: #5d5d66; --g200: #2c2c33;
+    --blue: #4c95ff; --blue-press: #3182f6; --blue-soft: #1c2a40; --red: #ff6b75; --red-soft: #3a1e22;
+    --chk1: #26262c; --chk2: #1e1e23;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--g900);
+  font: 15px/1.5 "Pretendard Variable", Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+  display: flex; flex-direction: column;
+}
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+input[type=number] { -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+header { display: flex; align-items: center; gap: 8px; padding: 14px 28px; background: var(--card); }
+header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+header .sp { flex: 1; }
+
+.btn {
+  border: 0; border-radius: 12px; padding: 0 16px; height: 40px; font-size: 14px; font-weight: 600;
+  background: var(--field); color: var(--g700); transition: background .15s, transform .1s;
+}
+.btn:hover:not(:disabled) { background: var(--field-hover); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn.primary { background: var(--blue); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--blue-press); }
+.btn.cta { width: 100%; height: 56px; border-radius: 16px; font-size: 17px; font-weight: 700; }
+.btn:disabled { background: var(--field); color: var(--g400); cursor: default; }
+.btn.soft { background: var(--blue-soft); color: var(--blue); }
+
+/* 빈 화면 */
+#empty { flex: 1; display: grid; place-items: center; padding: 24px; }
+.dropzone { width: min(520px, 100%); padding: 56px 32px 44px; text-align: center; background: var(--card); border-radius: 28px; }
+.dropzone .icon {
+  width: 72px; height: 72px; margin: 0 auto 22px; border-radius: 22px; background: var(--blue-soft);
+  display: grid; place-items: center;
+}
+.dropzone h2 { margin: 0 0 8px; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.dropzone p { margin: 0 0 28px; color: var(--g600); font-size: 15px; }
+.dropzone .row { display: flex; gap: 8px; justify-content: center; }
+.dropzone .row .btn { height: 48px; padding: 0 22px; font-size: 15px; }
+.privacy { margin-top: 22px; color: var(--g500); font-size: 13px; }
+
+#dropOverlay {
+  position: fixed; inset: 12px; z-index: 50; display: grid; place-items: center; border-radius: 28px;
+  background: color-mix(in srgb, var(--blue) 12%, transparent); border: 2px dashed var(--blue);
+  pointer-events: none; font-size: 22px; font-weight: 700; color: var(--blue); backdrop-filter: blur(2px);
+}
+
+/* 편집 화면 */
+#editor { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px 28px 24px; min-height: 0; }
+.left { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; }
+.card { background: var(--card); border-radius: 24px; padding: 22px 24px; }
+
+.preview { flex: 1; display: flex; flex-direction: column; min-height: 320px; padding: 20px; gap: 16px; }
+.viewer {
+  flex: 1; min-height: 0; position: relative; border-radius: 16px; overflow: hidden;
+  background-color: var(--chk1);
+  background-image: conic-gradient(var(--chk2) 25%, transparent 0 50%, var(--chk2) 0 75%, transparent 0);
+  background-size: 20px 20px;
+}
+.viewer .imgwrap { position: absolute; inset: 16px; display: grid; place-items: center; }
+#gifEmpty { color: var(--g500); font-size: 15px; }
+#busy {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 240px;
+  background: var(--card); border-radius: 18px; padding: 16px 18px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
+  font-size: 14px; font-weight: 600; color: var(--g800); text-align: center;
+}
+#busy .bar { margin-top: 10px; }
+.bar { height: 6px; border-radius: 3px; background: var(--field); overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .2s; }
+
+.stats { display: flex; gap: 8px; }
+.stat { flex: 1; background: var(--field); border-radius: 14px; padding: 12px 16px; }
+.stat .k { font-size: 13px; color: var(--g600); }
+.stat .v { font-size: 17px; font-weight: 700; color: var(--g900); font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+.warn { color: var(--red); background: var(--red-soft); padding: 12px 16px; border-radius: 14px; font-size: 14px; font-weight: 500; }
+
+/* 설정 */
+aside { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; padding-bottom: 4px; }
+aside .card { padding: 22px 22px; }
+.title { font-size: 17px; font-weight: 700; margin: 0 0 4px; color: var(--g900); }
+.desc { font-size: 14px; color: var(--g600); margin: 0 0 14px; }
+.sub { font-size: 14px; color: var(--g600); margin-top: 10px; }
+.sub.bad { color: var(--red); }
+.src { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--g700); }
+.src b { color: var(--g900); font-weight: 700; }
+.src .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--g400); }
+.chip { background: var(--blue-soft); color: var(--blue); border-radius: 8px; padding: 2px 8px; font-size: 12.5px; font-weight: 600; }
+
+.field {
+  display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 16px; border-radius: 14px;
+  background: var(--field); transition: box-shadow .15s, background .15s; min-width: 0;
+}
+.field:focus-within { box-shadow: inset 0 0 0 2px var(--blue); background: var(--card); }
+.field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; font-weight: 600; color: var(--g900); font-variant-numeric: tabular-nums; }
+.field .unit { color: var(--g500); font-size: 15px; font-weight: 500; flex: none; }
+.field .lbl { color: var(--g500); font-size: 13px; font-weight: 600; flex: none; width: 18px; }
+.field input:disabled { color: var(--g400); }
+
+.dims { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 6px; align-items: center; }
+#lockBtn {
+  width: 40px; height: 40px; border: 0; border-radius: 12px; background: transparent; color: var(--g400);
+  display: grid; place-items: center; transition: background .15s, color .15s;
+}
+#lockBtn:hover { background: var(--field); }
+#lockBtn.on { color: var(--blue); background: var(--blue-soft); }
+#lockBtn .open { display: block; } #lockBtn .closed { display: none; }
+#lockBtn.on .open { display: none; } #lockBtn.on .closed { display: block; }
+.pctrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pctrow .field { width: 130px; height: 44px; }
+.pctrow .field input { font-size: 15px; }
+.pctrow span { color: var(--g600); font-size: 14px; }
+
+/* 토스 스타일 체크박스 */
+.check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.check input { position: absolute; opacity: 0; pointer-events: none; }
+.check .box {
+  width: 24px; height: 24px; border-radius: 50%; flex: none; background: var(--g200);
+  display: grid; place-items: center; transition: background .15s, transform .1s;
+}
+.check .box svg { opacity: 1; }
+.check input:checked + .box { background: var(--blue); }
+.check:active .box { transform: scale(.9); }
+.check input:focus-visible + .box { box-shadow: 0 0 0 3px var(--blue-soft); }
+.check .t { font-size: 17px; font-weight: 700; color: var(--g900); }
+.card .check + .desc { margin: 4px 0 0 34px; }
+.indent { margin: 14px 0 0 34px; }
+.disabled { opacity: .45; pointer-events: none; }
+
+.seg { display: flex; background: var(--field); border-radius: 12px; padding: 4px; gap: 4px; }
+.seg button { flex: 1; border: 0; background: transparent; border-radius: 9px; height: 38px; font-size: 14px; font-weight: 600; color: var(--g600); transition: background .15s, color .15s; }
+.seg button.on { background: var(--card); color: var(--g900); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+#matteRow { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 14px; color: var(--g600); }
+#matteRow input { width: 40px; height: 32px; border: 0; border-radius: 10px; padding: 0; background: none; cursor: pointer; }
+
+/* 하단 결과 */
+.result { position: sticky; bottom: 0; box-shadow: 0 -10px 28px rgba(0,0,0,.07); }
+#sizeCard .k { font-size: 14px; color: var(--g600); font-weight: 500; }
+#sizeVal { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin: 2px 0 16px; color: var(--g900); }
+#sizeCard.over #sizeVal { color: var(--red); }
+
+/* 스트립 */
+.strip-card { padding: 18px 20px; }
+.strip-card .title { font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; }
+.strip-card .title span { font-size: 13px; font-weight: 500; color: var(--g500); }
+#strip { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 4px; }
+.cell { position: relative; flex: none; height: 56px; border-radius: 10px; overflow: hidden;
+  background-color: var(--chk1);
+  background-image: conic-gradient(var(--chk2) 25%, transparent 0 50%, var(--chk2) 0 75%, transparent 0);
+  background-size: 8px 8px; transition: opacity .2s; }
+.cell canvas { height: 100%; width: auto; display: block; min-width: 32px; }
+.cell .num { position: absolute; left: 5px; bottom: 2px; font-size: 10px; font-weight: 600; color: #fff; text-shadow: 0 0 3px rgba(0,0,0,.7); font-variant-numeric: tabular-nums; }
+.cell .dur { position: absolute; right: 4px; top: 4px; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 0 5px; }
+.cell .dur:empty { display: none; }
+.cell.off { opacity: .2; }
+
+
+#player { max-width: 100%; max-height: 100%; display: block; transition: opacity .2s; }
+#player.dim { opacity: .35; }
+.viewer { cursor: pointer; }
+#playIcon {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(0,0,0,.45); display: grid; place-items: center; pointer-events: none; backdrop-filter: blur(6px);
+}
+#playIcon svg { margin-left: 4px; }
+.kv { margin: 10px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.kv div { display: flex; justify-content: space-between; align-items: center; }
+.kv dt { color: var(--g600); font-size: 15px; }
+.kv dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--g900); font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: center; }
+aside .card > .title + .field, aside .card > .title + .dims, aside .card > .title + .seg { margin-top: 12px; }
+.cell { border: 0; padding: 0; cursor: pointer; outline: 2px solid transparent; outline-offset: -2px; }
+.cell.now { outline-color: var(--blue); }
+.cell:hover { opacity: .85; }
+.cell.off:hover { opacity: .4; }
+
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 80%, transparent); z-index: 40; backdrop-filter: blur(4px); }
+#loading .box { width: 300px; text-align: center; background: var(--card); border-radius: 24px; padding: 28px; font-weight: 600; }
+#loading .bar { margin-top: 14px; }
+
+#toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--g900); color: var(--card);
+  padding: 14px 20px; border-radius: 16px; font-size: 15px; font-weight: 500; z-index: 60; max-width: 90vw; }
+
+@media (max-width: 900px) {
+  #editor { grid-template-columns: 1fr; padding: 12px; }
+  .preview { min-height: 360px; }
+  .result { position: static; }
+  aside { overflow: visible; }
+  header { padding: 14px 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>PNG → GIF</h1>
+  <span class="sp"></span>
+  <button class="btn" data-pick="pickFiles">Open files</button>
+  <button class="btn" data-pick="pickFolder">Open folder</button>
+</header>
+<input type="file" id="pickFiles" accept=".png,image/png" multiple hidden>
+<input type="file" id="pickFolder" webkitdirectory multiple hidden>
+
+<main id="empty">
+  <div class="dropzone">
+    <div class="icon">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="M7 3h10a4 4 0 0 1 4 4v10"/><path d="M8 12l2 2 3-4"/></svg>
+    </div>
+    <h2>Drop a PNG sequence here</h2>
+    <p>Drop PNG files or a folder of PNGs</p>
+    <div class="row">
+      <button class="btn primary" data-pick="pickFiles">Choose files</button>
+      <button class="btn soft" data-pick="pickFolder">Choose folder</button>
+    </div>
+    <div class="privacy">Files never leave your browser</div>
+  </div>
+</main>
+
+<main id="editor" hidden>
+  <div class="left">
+    <section class="card preview">
+      <div class="viewer" id="viewer">
+        <div class="imgwrap">
+          <canvas id="player" width="1" height="1" hidden></canvas>
+          <div id="gifEmpty">Preparing GIF…</div>
+        </div>
+        <div id="playIcon" hidden>
+          <svg width="28" height="28" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="#fff"/></svg>
+        </div>
+        <div id="busy" hidden>
+          <div id="busyText">Building GIF</div>
+          <div class="bar"><div id="busyBar"></div></div>
+        </div>
+      </div>
+      <div class="warn" id="delayWarn" hidden>Above 50 fps, most browsers play GIFs much slower than intended.</div>
+      <div class="warn" id="sizeWarn" hidden></div>
+    </section>
+    <section class="card strip-card">
+      <div class="title">Frames</div>
+      <div id="strip"></div>
+    </section>
+  </div>
+
+  <aside>
+    <section class="card">
+      <div class="title">Sequence</div>
+      <dl class="kv">
+        <div><dt>Images</dt><dd><span id="srcCount">—</span><span class="chip" id="srcAlpha" hidden>Transparent</span></dd></div>
+        <div><dt>Source size</dt><dd id="srcDims">—</dd></div>
+        <div><dt>Frames</dt><dd id="outFrames">—</dd></div>
+        <div><dt>Duration</dt><dd id="outSecs">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <div class="title">Frame rate</div>
+      <label class="field"><input type="number" id="fpsInput" min="1" max="100" value="30" aria-label="Frame rate"><span class="unit">fps</span></label>
+    </section>
+
+    <section class="card">
+      <div class="title">GIF size</div>
+      <div class="dims">
+        <label class="field"><span class="lbl">W</span><input type="number" id="wInput" min="1" aria-label="Width"><span class="unit">px</span></label>
+        <button id="lockBtn" type="button" aria-label="Lock aspect ratio">
+          <svg class="closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          <svg class="open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/></svg>
+        </button>
+        <label class="field"><span class="lbl">H</span><input type="number" id="hInput" min="1" aria-label="Height"><span class="unit">px</span></label>
+      </div>
+      <div class="pctrow">
+        <label class="field"><input type="number" id="pctInput" min="1" max="400" aria-label="Scale percent"><span class="unit">%</span></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <label class="check"><input type="checkbox" id="dedupe"><span class="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t">Merge duplicate frames</span></label>
+    </section>
+
+    <section class="card" id="alphaGroup" hidden>
+      <div class="title">Transparency</div>
+      <div class="seg" id="alphaSeg">
+        <button data-v="keep">Keep transparent</button><button data-v="matte">Fill background</button>
+      </div>
+      <div id="matteRow"><input type="color" id="matteColor" value="#ffffff" aria-label="Background color"> Background color</div>
+    </section>
+
+    <section class="card">
+      <label class="check"><input type="checkbox" id="targetOn"><span class="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t">Target file size</span></label>
+      <div class="indent" id="targetRow">
+        <label class="field"><input type="number" id="targetInput" min="0.1" step="0.5" value="5" aria-label="Target file size" disabled><span class="unit">MB</span></label>
+        <div class="sub" id="fitNote" hidden></div>
+      </div>
+    </section>
+
+    <section class="card result" id="sizeCard">
+      <div class="k" id="sizeLabel">Estimated size</div>
+      <div id="sizeVal">—</div>
+      <button class="btn primary cta" id="dlBtn" disabled>Download GIF</button>
+    </section>
+  </aside>
+</main>
+
+<div id="loading" hidden>
+  <div class="box">
+    <div id="loadText">Analyzing frames</div>
+    <div class="bar"><div id="loadBar"></div></div>
+  </div>
+</div>
+<div id="dropOverlay" hidden>Drop to load</div>
+<div id="toast" hidden></div>
+
+<script id="worker-src" type="text/plain">
+/* gifenc 1.0.3 (c) 2017 Matt DesLauriers, MIT License: https://github.com/mattdesl/gifenc */
+/*GIFENC*/
+/*WORKER*/
+</script>
+<script>
+/*PLAYER*/
+/*APP*/
+</script>
+</body>
+</html>

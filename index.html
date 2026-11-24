@@ -1,0 +1,1110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PNG → GIF</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root {
+  --bg: #f2f4f6; --card: #ffffff; --field: #f2f4f6; --field-hover: #e9ecef;
+  --g900: #191f28; --g800: #333d4b; --g700: #4e5968; --g600: #6b7684; --g500: #8b95a1; --g400: #b0b8c1; --g200: #e5e8eb;
+  --blue: #3182f6; --blue-press: #1b64da; --blue-soft: #e8f3ff; --red: #f04452; --red-soft: #ffeeee;
+  --chk1: #ffffff; --chk2: #f2f4f6;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101012; --card: #1c1c21; --field: #2c2c33; --field-hover: #35353d;
+    --g900: #f2f2f4; --g800: #dcdce0; --g700: #b3b3ba; --g600: #9696a0; --g500: #7d7d87; --g400: #5d5d66; --g200: #2c2c33;
+    --blue: #4c95ff; --blue-press: #3182f6; --blue-soft: #1c2a40; --red: #ff6b75; --red-soft: #3a1e22;
+    --chk1: #26262c; --chk2: #1e1e23;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--g900);
+  font: 15px/1.5 "Pretendard Variable", Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+  display: flex; flex-direction: column;
+}
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+input[type=number] { -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+header { display: flex; align-items: center; gap: 8px; padding: 14px 28px; background: var(--card); }
+header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+header .sp { flex: 1; }
+
+.btn {
+  border: 0; border-radius: 12px; padding: 0 16px; height: 40px; font-size: 14px; font-weight: 600;
+  background: var(--field); color: var(--g700); transition: background .15s, transform .1s;
+}
+.btn:hover:not(:disabled) { background: var(--field-hover); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn.primary { background: var(--blue); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--blue-press); }
+.btn.cta { width: 100%; height: 56px; border-radius: 16px; font-size: 17px; font-weight: 700; }
+.btn:disabled { background: var(--field); color: var(--g400); cursor: default; }
+.btn.soft { background: var(--blue-soft); color: var(--blue); }
+
+/* 빈 화면 */
+#empty { flex: 1; display: grid; place-items: center; padding: 24px; }
+.dropzone { width: min(520px, 100%); padding: 56px 32px 44px; text-align: center; background: var(--card); border-radius: 28px; }
+.dropzone .icon {
+  width: 72px; height: 72px; margin: 0 auto 22px; border-radius: 22px; background: var(--blue-soft);
+  display: grid; place-items: center;
+}
+.dropzone h2 { margin: 0 0 8px; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.dropzone p { margin: 0 0 28px; color: var(--g600); font-size: 15px; }
+.dropzone .row { display: flex; gap: 8px; justify-content: center; }
+.dropzone .row .btn { height: 48px; padding: 0 22px; font-size: 15px; }
+.privacy { margin-top: 22px; color: var(--g500); font-size: 13px; }
+
+#dropOverlay {
+  position: fixed; inset: 12px; z-index: 50; display: grid; place-items: center; border-radius: 28px;
+  background: color-mix(in srgb, var(--blue) 12%, transparent); border: 2px dashed var(--blue);
+  pointer-events: none; font-size: 22px; font-weight: 700; color: var(--blue); backdrop-filter: blur(2px);
+}
+
+/* 편집 화면 */
+#editor { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px 28px 24px; min-height: 0; }
+.left { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; }
+.card { background: var(--card); border-radius: 24px; padding: 22px 24px; }
+
+.preview { flex: 1; display: flex; flex-direction: column; min-height: 320px; padding: 20px; gap: 16px; }
+.viewer {
+  flex: 1; min-height: 0; position: relative; border-radius: 16px; overflow: hidden;
+  background-color: var(--chk1);
+  background-image: conic-gradient(var(--chk2) 25%, transparent 0 50%, var(--chk2) 0 75%, transparent 0);
+  background-size: 20px 20px;
+}
+.viewer .imgwrap { position: absolute; inset: 16px; display: grid; place-items: center; }
+#gifEmpty { color: var(--g500); font-size: 15px; }
+#busy {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 240px;
+  background: var(--card); border-radius: 18px; padding: 16px 18px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
+  font-size: 14px; font-weight: 600; color: var(--g800); text-align: center;
+}
+#busy .bar { margin-top: 10px; }
+.bar { height: 6px; border-radius: 3px; background: var(--field); overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .2s; }
+
+.stats { display: flex; gap: 8px; }
+.stat { flex: 1; background: var(--field); border-radius: 14px; padding: 12px 16px; }
+.stat .k { font-size: 13px; color: var(--g600); }
+.stat .v { font-size: 17px; font-weight: 700; color: var(--g900); font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+.warn { color: var(--red); background: var(--red-soft); padding: 12px 16px; border-radius: 14px; font-size: 14px; font-weight: 500; }
+
+/* 설정 */
+aside { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; padding-bottom: 4px; }
+aside .card { padding: 22px 22px; }
+.title { font-size: 17px; font-weight: 700; margin: 0 0 4px; color: var(--g900); }
+.desc { font-size: 14px; color: var(--g600); margin: 0 0 14px; }
+.sub { font-size: 14px; color: var(--g600); margin-top: 10px; }
+.sub.bad { color: var(--red); }
+.src { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--g700); }
+.src b { color: var(--g900); font-weight: 700; }
+.src .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--g400); }
+.chip { background: var(--blue-soft); color: var(--blue); border-radius: 8px; padding: 2px 8px; font-size: 12.5px; font-weight: 600; }
+
+.field {
+  display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 16px; border-radius: 14px;
+  background: var(--field); transition: box-shadow .15s, background .15s; min-width: 0;
+}
+.field:focus-within { box-shadow: inset 0 0 0 2px var(--blue); background: var(--card); }
+.field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; font-weight: 600; color: var(--g900); font-variant-numeric: tabular-nums; }
+.field .unit { color: var(--g500); font-size: 15px; font-weight: 500; flex: none; }
+.field .lbl { color: var(--g500); font-size: 13px; font-weight: 600; flex: none; width: 18px; }
+.field input:disabled { color: var(--g400); }
+
+.dims { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 6px; align-items: center; }
+#lockBtn {
+  width: 40px; height: 40px; border: 0; border-radius: 12px; background: transparent; color: var(--g400);
+  display: grid; place-items: center; transition: background .15s, color .15s;
+}
+#lockBtn:hover { background: var(--field); }
+#lockBtn.on { color: var(--blue); background: var(--blue-soft); }
+#lockBtn .open { display: block; } #lockBtn .closed { display: none; }
+#lockBtn.on .open { display: none; } #lockBtn.on .closed { display: block; }
+.pctrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pctrow .field { width: 130px; height: 44px; }
+.pctrow .field input { font-size: 15px; }
+.pctrow span { color: var(--g600); font-size: 14px; }
+
+/* 토스 스타일 체크박스 */
+.check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.check input { position: absolute; opacity: 0; pointer-events: none; }
+.check .box {
+  width: 24px; height: 24px; border-radius: 50%; flex: none; background: var(--g200);
+  display: grid; place-items: center; transition: background .15s, transform .1s;
+}
+.check .box svg { opacity: 1; }
+.check input:checked + .box { background: var(--blue); }
+.check:active .box { transform: scale(.9); }
+.check input:focus-visible + .box { box-shadow: 0 0 0 3px var(--blue-soft); }
+.check .t { font-size: 17px; font-weight: 700; color: var(--g900); }
+.card .check + .desc { margin: 4px 0 0 34px; }
+.indent { margin: 14px 0 0 34px; }
+.disabled { opacity: .45; pointer-events: none; }
+
+.seg { display: flex; background: var(--field); border-radius: 12px; padding: 4px; gap: 4px; }
+.seg button { flex: 1; border: 0; background: transparent; border-radius: 9px; height: 38px; font-size: 14px; font-weight: 600; color: var(--g600); transition: background .15s, color .15s; }
+.seg button.on { background: var(--card); color: var(--g900); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+#matteRow { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 14px; color: var(--g600); }
+#matteRow input { width: 40px; height: 32px; border: 0; border-radius: 10px; padding: 0; background: none; cursor: pointer; }
+
+/* 하단 결과 */
+.result { position: sticky; bottom: 0; box-shadow: 0 -10px 28px rgba(0,0,0,.07); }
+#sizeCard .k { font-size: 14px; color: var(--g600); font-weight: 500; }
+#sizeVal { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin: 2px 0 16px; color: var(--g900); }
+#sizeCard.over #sizeVal { color: var(--red); }
+
+/* 스트립 */
+.strip-card { padding: 18px 20px; }
+.strip-card .title { font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; }
+.strip-card .title span { font-size: 13px; font-weight: 500; color: var(--g500); }
+#strip { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 4px; }
+.cell { position: relative; flex: none; height: 56px; border-radius: 10px; overflow: hidden;
+  background-color: var(--chk1);
+  background-image: conic-gradient(var(--chk2) 25%, transparent 0 50%, var(--chk2) 0 75%, transparent 0);
+  background-size: 8px 8px; transition: opacity .2s; }
+.cell canvas { height: 100%; width: auto; display: block; min-width: 32px; }
+.cell .num { position: absolute; left: 5px; bottom: 2px; font-size: 10px; font-weight: 600; color: #fff; text-shadow: 0 0 3px rgba(0,0,0,.7); font-variant-numeric: tabular-nums; }
+.cell .dur { position: absolute; right: 4px; top: 4px; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 6px; padding: 0 5px; }
+.cell .dur:empty { display: none; }
+.cell.off { opacity: .2; }
+
+
+#player { max-width: 100%; max-height: 100%; display: block; transition: opacity .2s; }
+#player.dim { opacity: .35; }
+.viewer { cursor: pointer; }
+#playIcon {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(0,0,0,.45); display: grid; place-items: center; pointer-events: none; backdrop-filter: blur(6px);
+}
+#playIcon svg { margin-left: 4px; }
+.kv { margin: 10px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.kv div { display: flex; justify-content: space-between; align-items: center; }
+.kv dt { color: var(--g600); font-size: 15px; }
+.kv dd { margin: 0; font-size: 15px; font-weight: 700; color: var(--g900); font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: center; }
+aside .card > .title + .field, aside .card > .title + .dims, aside .card > .title + .seg { margin-top: 12px; }
+.cell { border: 0; padding: 0; cursor: pointer; outline: 2px solid transparent; outline-offset: -2px; }
+.cell.now { outline-color: var(--blue); }
+.cell:hover { opacity: .85; }
+.cell.off:hover { opacity: .4; }
+
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 80%, transparent); z-index: 40; backdrop-filter: blur(4px); }
+#loading .box { width: 300px; text-align: center; background: var(--card); border-radius: 24px; padding: 28px; font-weight: 600; }
+#loading .bar { margin-top: 14px; }
+
+#toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--g900); color: var(--card);
+  padding: 14px 20px; border-radius: 16px; font-size: 15px; font-weight: 500; z-index: 60; max-width: 90vw; }
+
+@media (max-width: 900px) {
+  #editor { grid-template-columns: 1fr; padding: 12px; }
+  .preview { min-height: 360px; }
+  .result { position: static; }
+  aside { overflow: visible; }
+  header { padding: 14px 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>PNG → GIF</h1>
+  <span class="sp"></span>
+  <button class="btn" data-pick="pickFiles">Open files</button>
+  <button class="btn" data-pick="pickFolder">Open folder</button>
+</header>
+<input type="file" id="pickFiles" accept=".png,image/png" multiple hidden>
+<input type="file" id="pickFolder" webkitdirectory multiple hidden>
+
+<main id="empty">
+  <div class="dropzone">
+    <div class="icon">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="M7 3h10a4 4 0 0 1 4 4v10"/><path d="M8 12l2 2 3-4"/></svg>
+    </div>
+    <h2>Drop a PNG sequence here</h2>
+    <p>Drop PNG files or a folder of PNGs</p>
+    <div class="row">
+      <button class="btn primary" data-pick="pickFiles">Choose files</button>
+      <button class="btn soft" data-pick="pickFolder">Choose folder</button>
+    </div>
+    <div class="privacy">Files never leave your browser</div>
+  </div>
+</main>
+
+<main id="editor" hidden>
+  <div class="left">
+    <section class="card preview">
+      <div class="viewer" id="viewer">
+        <div class="imgwrap">
+          <canvas id="player" width="1" height="1" hidden></canvas>
+          <div id="gifEmpty">Preparing GIF…</div>
+        </div>
+        <div id="playIcon" hidden>
+          <svg width="28" height="28" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="#fff"/></svg>
+        </div>
+        <div id="busy" hidden>
+          <div id="busyText">Building GIF</div>
+          <div class="bar"><div id="busyBar"></div></div>
+        </div>
+      </div>
+      <div class="warn" id="delayWarn" hidden>Above 50 fps, most browsers play GIFs much slower than intended.</div>
+      <div class="warn" id="sizeWarn" hidden></div>
+    </section>
+    <section class="card strip-card">
+      <div class="title">Frames</div>
+      <div id="strip"></div>
+    </section>
+  </div>
+
+  <aside>
+    <section class="card">
+      <div class="title">Sequence</div>
+      <dl class="kv">
+        <div><dt>Images</dt><dd><span id="srcCount">—</span><span class="chip" id="srcAlpha" hidden>Transparent</span></dd></div>
+        <div><dt>Source size</dt><dd id="srcDims">—</dd></div>
+        <div><dt>Frames</dt><dd id="outFrames">—</dd></div>
+        <div><dt>Duration</dt><dd id="outSecs">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <div class="title">Frame rate</div>
+      <label class="field"><input type="number" id="fpsInput" min="1" max="100" value="30" aria-label="Frame rate"><span class="unit">fps</span></label>
+    </section>
+
+    <section class="card">
+      <div class="title">GIF size</div>
+      <div class="dims">
+        <label class="field"><span class="lbl">W</span><input type="number" id="wInput" min="1" aria-label="Width"><span class="unit">px</span></label>
+        <button id="lockBtn" type="button" aria-label="Lock aspect ratio">
+          <svg class="closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          <svg class="open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M9 17H7A5 5 0 0 1 7 7h2"/></svg>
+        </button>
+        <label class="field"><span class="lbl">H</span><input type="number" id="hInput" min="1" aria-label="Height"><span class="unit">px</span></label>
+      </div>
+      <div class="pctrow">
+        <label class="field"><input type="number" id="pctInput" min="1" max="400" aria-label="Scale percent"><span class="unit">%</span></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <label class="check"><input type="checkbox" id="dedupe"><span class="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t">Merge duplicate frames</span></label>
+    </section>
+
+    <section class="card" id="alphaGroup" hidden>
+      <div class="title">Transparency</div>
+      <div class="seg" id="alphaSeg">
+        <button data-v="keep">Keep transparent</button><button data-v="matte">Fill background</button>
+      </div>
+      <div id="matteRow"><input type="color" id="matteColor" value="#ffffff" aria-label="Background color"> Background color</div>
+    </section>
+
+    <section class="card">
+      <label class="check"><input type="checkbox" id="targetOn"><span class="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span class="t">Target file size</span></label>
+      <div class="indent" id="targetRow">
+        <label class="field"><input type="number" id="targetInput" min="0.1" step="0.5" value="5" aria-label="Target file size" disabled><span class="unit">MB</span></label>
+        <div class="sub" id="fitNote" hidden></div>
+      </div>
+    </section>
+
+    <section class="card result" id="sizeCard">
+      <div class="k" id="sizeLabel">Estimated size</div>
+      <div id="sizeVal">—</div>
+      <button class="btn primary cta" id="dlBtn" disabled>Download GIF</button>
+    </section>
+  </aside>
+</main>
+
+<div id="loading" hidden>
+  <div class="box">
+    <div id="loadText">Analyzing frames</div>
+    <div class="bar"><div id="loadBar"></div></div>
+  </div>
+</div>
+<div id="dropOverlay" hidden>Drop to load</div>
+<div id="toast" hidden></div>
+
+<script id="worker-src" type="text/plain">
+/* gifenc 1.0.3 (c) 2017 Matt DesLauriers, MIT License: https://github.com/mattdesl/gifenc */
+var X={signature:"GIF",version:"89a",trailer:59,extensionIntroducer:33,applicationExtensionLabel:255,graphicControlExtensionLabel:249,imageSeparator:44,signatureSize:3,versionSize:3,globalColorTableFlagMask:128,colorResolutionMask:112,sortFlagMask:8,globalColorTableSizeMask:7,applicationIdentifierSize:8,applicationAuthCodeSize:3,disposalMethodMask:28,userInputFlagMask:2,transparentColorFlagMask:1,localColorTableFlagMask:128,interlaceFlagMask:64,idSortFlagMask:32,localColorTableSizeMask:7};function F(t=256){let e=0,s=new Uint8Array(t);return{get buffer(){return s.buffer},reset(){e=0},bytesView(){return s.subarray(0,e)},bytes(){return s.slice(0,e)},writeByte(r){n(e+1),s[e]=r,e++},writeBytes(r,o=0,i=r.length){n(e+i);for(let c=0;c<i;c++)s[e++]=r[c+o]},writeBytesView(r,o=0,i=r.byteLength){n(e+i),s.set(r.subarray(o,o+i),e),e+=i}};function n(r){var o=s.length;if(o>=r)return;var i=1024*1024;r=Math.max(r,o*(o<i?2:1.125)>>>0),o!=0&&(r=Math.max(r,256));let c=s;s=new Uint8Array(r),e>0&&s.set(c.subarray(0,e),0)}}var O=12,J=5003,lt=[0,1,3,7,15,31,63,127,255,511,1023,2047,4095,8191,16383,32767,65535];function at(t,e,s,n,r=F(512),o=new Uint8Array(256),i=new Int32Array(J),c=new Int32Array(J)){let x=i.length,a=Math.max(2,n);o.fill(0),c.fill(0),i.fill(-1);let l=0,f=0,g=a+1,h=g,b=!1,w=h,_=(1<<w)-1,u=1<<g-1,k=u+1,B=u+2,p=0,A=s[0],z=0;for(let y=x;y<65536;y*=2)++z;z=8-z,r.writeByte(a),I(u);let d=s.length;for(let y=1;y<d;y++){t:{let m=s[y],v=(m<<O)+A,M=m<<z^A;if(i[M]===v){A=c[M];break t}let V=M===0?1:x-M;for(;i[M]>=0;)if(M-=V,M<0&&(M+=x),i[M]===v){A=c[M];break t}I(A),A=m,B<1<<O?(c[M]=B++,i[M]=v):(i.fill(-1),B=u+2,b=!0,I(u))}}return I(A),I(k),r.writeByte(0),r.bytesView();function I(y){for(l&=lt[f],f>0?l|=y<<f:l=y,f+=w;f>=8;)o[p++]=l&255,p>=254&&(r.writeByte(p),r.writeBytesView(o,0,p),p=0),l>>=8,f-=8;if((B>_||b)&&(b?(w=h,_=(1<<w)-1,b=!1):(++w,_=w===O?1<<w:(1<<w)-1)),y==k){for(;f>0;)o[p++]=l&255,p>=254&&(r.writeByte(p),r.writeBytesView(o,0,p),p=0),l>>=8,f-=8;p>0&&(r.writeByte(p),r.writeBytesView(o,0,p),p=0)}}}var $=at;function D(t,e,s){return t<<8&63488|e<<2&992|s>>3}function G(t,e,s,n){return t>>4|e&240|(s&240)<<4|(n&240)<<8}function j(t,e,s){return t>>4<<8|e&240|s>>4}function R(t,e,s){return t<e?e:t>s?s:t}function T(t){return t*t}function tt(t,e,s){var n=0,r=1e100;let o=t[e],i=o.cnt,c=o.ac,x=o.rc,a=o.gc,l=o.bc;for(var f=o.fw;f!=0;f=t[f].fw){let h=t[f],b=h.cnt,w=i*b/(i+b);if(!(w>=r)){var g=0;s&&(g+=w*T(h.ac-c),g>=r)||(g+=w*T(h.rc-x),!(g>=r)&&(g+=w*T(h.gc-a),!(g>=r)&&(g+=w*T(h.bc-l),!(g>=r)&&(r=g,n=f))))}}o.err=r,o.nn=n}function Q(){return{ac:0,rc:0,gc:0,bc:0,cnt:0,nn:0,fw:0,bk:0,tm:0,mtm:0,err:0}}function ut(t,e){let s=e==="rgb444"?4096:65536,n=new Array(s),r=t.length;if(e==="rgba4444")for(let o=0;o<r;++o){let i=t[o],c=i>>24&255,x=i>>16&255,a=i>>8&255,l=i&255,f=G(l,a,x,c),g=f in n?n[f]:n[f]=Q();g.rc+=l,g.gc+=a,g.bc+=x,g.ac+=c,g.cnt++}else if(e==="rgb444")for(let o=0;o<r;++o){let i=t[o],c=i>>16&255,x=i>>8&255,a=i&255,l=j(a,x,c),f=l in n?n[l]:n[l]=Q();f.rc+=a,f.gc+=x,f.bc+=c,f.cnt++}else for(let o=0;o<r;++o){let i=t[o],c=i>>16&255,x=i>>8&255,a=i&255,l=D(a,x,c),f=l in n?n[l]:n[l]=Q();f.rc+=a,f.gc+=x,f.bc+=c,f.cnt++}return n}function H(t,e,s={}){let{format:n="rgb565",clearAlpha:r=!0,clearAlphaColor:o=0,clearAlphaThreshold:i=0,oneBitAlpha:c=!1}=s;if(!t||!t.buffer)throw new Error("quantize() expected RGBA Uint8Array data");if(!(t instanceof Uint8Array)&&!(t instanceof Uint8ClampedArray))throw new Error("quantize() expected RGBA Uint8Array data");let x=new Uint32Array(t.buffer),a=s.useSqrt!==!1,l=n==="rgba4444",f=ut(x,n),g=f.length,h=g-1,b=new Uint32Array(g+1);for(var w=0,u=0;u<g;++u){let C=f[u];if(C!=null){var _=1/C.cnt;l&&(C.ac*=_),C.rc*=_,C.gc*=_,C.bc*=_,f[w++]=C}}T(e)/w<.022&&(a=!1);for(var u=0;u<w-1;++u)f[u].fw=u+1,f[u+1].bk=u,a&&(f[u].cnt=Math.sqrt(f[u].cnt));a&&(f[u].cnt=Math.sqrt(f[u].cnt));var k,B,p;for(u=0;u<w;++u){tt(f,u,!1);var A=f[u].err;for(B=++b[0];B>1&&(p=B>>1,!(f[k=b[p]].err<=A));B=p)b[B]=k;b[B]=u}var z=w-e;for(u=0;u<z;){for(var d;;){var I=b[1];if(d=f[I],d.tm>=d.mtm&&f[d.nn].mtm<=d.tm)break;d.mtm==h?I=b[1]=b[b[0]--]:(tt(f,I,!1),d.tm=u);var A=f[I].err;for(B=1;(p=B+B)<=b[0]&&(p<b[0]&&f[b[p]].err>f[b[p+1]].err&&p++,!(A<=f[k=b[p]].err));B=p)b[B]=k;b[B]=I}var y=f[d.nn],m=d.cnt,v=y.cnt,_=1/(m+v);l&&(d.ac=_*(m*d.ac+v*y.ac)),d.rc=_*(m*d.rc+v*y.rc),d.gc=_*(m*d.gc+v*y.gc),d.bc=_*(m*d.bc+v*y.bc),d.cnt+=y.cnt,d.mtm=++u,f[y.bk].fw=y.fw,f[y.fw].bk=y.bk,y.mtm=h}let M=[];var V=0;for(u=0;;++V){let L=R(Math.round(f[u].rc),0,255),C=R(Math.round(f[u].gc),0,255),Y=R(Math.round(f[u].bc),0,255),E=255;if(l){if(E=R(Math.round(f[u].ac),0,255),c){let st=typeof c=="number"?c:127;E=E<=st?0:255}r&&E<=i&&(L=C=Y=o,E=0)}let K=l?[L,C,Y,E]:[L,C,Y];if(xt(M,K)||M.push(K),(u=f[u].fw)==0)break}return M}function xt(t,e){for(let s=0;s<t.length;s++){let n=t[s],r=n[0]===e[0]&&n[1]===e[1]&&n[2]===e[2],o=n.length>=4&&e.length>=4?n[3]===e[3]:!0;if(r&&o)return!0}return!1}function U(t,e){var s=0,n;for(n=0;n<t.length;n++){let r=t[n]-e[n];s+=r*r}return s}function P(t,e){return e>1?Math.round(t/e)*e:t}function et(t,{roundRGB:e=5,roundAlpha:s=10,oneBitAlpha:n=null}={}){let r=new Uint32Array(t.buffer);for(let o=0;o<r.length;o++){let i=r[o],c=i>>24&255,x=i>>16&255,a=i>>8&255,l=i&255;if(c=P(c,s),n){let f=typeof n=="number"?n:127;c=c<=f?0:255}l=P(l,e),a=P(a,e),x=P(x,e),r[o]=c<<24|x<<16|a<<8|l<<0}}function nt(t,e,s="rgb565"){if(!t||!t.buffer)throw new Error("quantize() expected RGBA Uint8Array data");if(!(t instanceof Uint8Array)&&!(t instanceof Uint8ClampedArray))throw new Error("quantize() expected RGBA Uint8Array data");if(e.length>256)throw new Error("applyPalette() only works with 256 colors or less");let n=new Uint32Array(t.buffer),r=n.length,o=s==="rgb444"?4096:65536,i=new Uint8Array(r),c=new Array(o),x=s==="rgba4444";if(s==="rgba4444")for(let a=0;a<r;a++){let l=n[a],f=l>>24&255,g=l>>16&255,h=l>>8&255,b=l&255,w=G(b,h,g,f),_=w in c?c[w]:c[w]=gt(b,h,g,f,e);i[a]=_}else{let a=s==="rgb444"?j:D;for(let l=0;l<r;l++){let f=n[l],g=f>>16&255,h=f>>8&255,b=f&255,w=a(b,h,g),_=w in c?c[w]:c[w]=bt(b,h,g,e);i[l]=_}}return i}function gt(t,e,s,n,r){let o=0,i=1e100;for(let c=0;c<r.length;c++){let x=r[c],a=x[3],l=q(a-n);if(l>i)continue;let f=x[0];if(l+=q(f-t),l>i)continue;let g=x[1];if(l+=q(g-e),l>i)continue;let h=x[2];l+=q(h-s),!(l>i)&&(i=l,o=c)}return o}function bt(t,e,s,n){let r=0,o=1e100;for(let i=0;i<n.length;i++){let c=n[i],x=c[0],a=q(x-t);if(a>o)continue;let l=c[1];if(a+=q(l-e),a>o)continue;let f=c[2];a+=q(f-s),!(a>o)&&(o=a,r=i)}return r}function rt(t,e,s=5){if(!t.length||!e.length)return;let n=t.map(i=>i.slice(0,3)),r=s*s,o=t[0].length;for(let i=0;i<e.length;i++){let c=e[i];c.length<o?c=[c[0],c[1],c[2],255]:c.length>o?c=c.slice(0,3):c=c.slice();let x=N(n,c.slice(0,3),U),a=x[0],l=x[1];l>0&&l<=r&&(t[a]=c)}}function q(t){return t*t}function W(t,e,s=U){let n=Infinity,r=-1;for(let o=0;o<t.length;o++){let i=t[o],c=s(e,i);c<n&&(n=c,r=o)}return r}function N(t,e,s=U){let n=Infinity,r=-1;for(let o=0;o<t.length;o++){let i=t[o],c=s(e,i);c<n&&(n=c,r=o)}return[r,n]}function ot(t,e,s=U){return t[W(t,e,s)]}function ct(t={}){let{initialCapacity:e=4096,auto:s=!0}=t,n=F(e),r=5003,o=new Uint8Array(256),i=new Int32Array(r),c=new Int32Array(r),x=!1;return{reset(){n.reset(),x=!1},finish(){n.writeByte(X.trailer)},bytes(){return n.bytes()},bytesView(){return n.bytesView()},get buffer(){return n.buffer},get stream(){return n},writeHeader:a,writeFrame(l,f,g,h={}){let{transparent:b=!1,transparentIndex:w=0,delay:_=0,palette:u=null,repeat:k=0,colorDepth:B=8,dispose:p=-1}=h,A=!1;if(s?x||(A=!0,a(),x=!0):A=Boolean(h.first),f=Math.max(0,Math.floor(f)),g=Math.max(0,Math.floor(g)),A){if(!u)throw new Error("First frame must include a { palette } option");pt(n,f,g,u,B),it(n,u),k>=0&&dt(n,k)}let z=Math.round(_/10);wt(n,p,z,b,w);let d=Boolean(u)&&!A;ht(n,f,g,d?u:null),d&&it(n,u),yt(n,l,f,g,B,o,i,c)}};function a(){ft(n,"GIF89a")}}function wt(t,e,s,n,r){t.writeByte(33),t.writeByte(249),t.writeByte(4),r<0&&(r=0,n=!1);var o,i;n?(o=1,i=2):(o=0,i=0),e>=0&&(i=e&7),i<<=2;let c=0;t.writeByte(0|i|c|o),S(t,s),t.writeByte(r||0),t.writeByte(0)}function pt(t,e,s,n,r=8){let o=1,i=0,c=Z(n.length)-1,x=o<<7|r-1<<4|i<<3|c,a=0,l=0;S(t,e),S(t,s),t.writeBytes([x,a,l])}function dt(t,e){t.writeByte(33),t.writeByte(255),t.writeByte(11),ft(t,"NETSCAPE2.0"),t.writeByte(3),t.writeByte(1),S(t,e),t.writeByte(0)}function it(t,e){let s=1<<Z(e.length);for(let n=0;n<s;n++){let r=[0,0,0];n<e.length&&(r=e[n]),t.writeByte(r[0]),t.writeByte(r[1]),t.writeByte(r[2])}}function ht(t,e,s,n){if(t.writeByte(44),S(t,0),S(t,0),S(t,e),S(t,s),n){let r=0,o=0,i=Z(n.length)-1;t.writeByte(128|r|o|0|i)}else t.writeByte(0)}function yt(t,e,s,n,r=8,o,i,c){$(s,n,e,r,t,o,i,c)}function S(t,e){t.writeByte(e&255),t.writeByte(e>>8&255)}function ft(t,e){for(var s=0;s<e.length;s++)t.writeByte(e.charCodeAt(s))}function Z(t){return Math.max(Math.ceil(Math.log2(t)),1)}var Bt=ct;self.gifenc={GIFEncoder:ct,applyPalette:nt,quantize:H};
+
+/* PNG → GIF worker
+ * - 'load'     : 모든 PNG를 한 번 훑어서 프레임 간 차이, 투명 여부, 썸네일을 만든다.
+ *                (원본 픽셀은 한 장씩만 메모리에 두고 바로 버린다)
+ * - 'estimate' : 출력 프레임 중 일부만 실제로 인코딩해서 전체 용량을 추정한다.
+ * - 'encode'   : 전체 GIF를 한 프레임씩 디코드 → 리사이즈 → 양자화 → 인코딩한다.
+ * 새 작업이 오면 이전 작업은 다음 await 지점에서 중단된다.
+ */
+const { GIFEncoder, quantize, applyPalette } = self.gifenc;
+
+let files = [];
+let baseW = 0, baseH = 0;
+const latest = { load: 0, estimate: 0, encode: 0 };
+const THUMB_MAX = 240;
+const ALPHA_CUT = 128;
+
+const stale = (kind, id) => latest[kind] !== id;
+
+self.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'cancel') { latest[m.kind] = -1; return; }
+  if (m.type === 'init') { files = m.files; baseW = m.baseW; baseH = m.baseH; return; }
+  latest[m.type] = m.id;
+  const run = { load, estimate, encode }[m.type];
+  run(m).catch((err) => self.postMessage({ type: 'error', kind: m.type, id: m.id, message: String(err && err.message || err) }));
+};
+
+async function load(m) {
+  files = m.files;
+  const n = files.length;
+  const diffs = new Float32Array(n);
+  const sizes = [];
+  let hasAlpha = false;
+
+  // 기준 크기는 첫 프레임
+  const first = await createImageBitmap(files[0]);
+  baseW = first.width; baseH = first.height;
+  first.close();
+
+  const cv = new OffscreenCanvas(baseW, baseH);
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const ts = Math.min(1, THUMB_MAX / Math.max(baseW, baseH));
+  const tw = Math.max(1, Math.round(baseW * ts)), th = Math.max(1, Math.round(baseH * ts));
+  const tcv = new OffscreenCanvas(tw, th);
+  const tctx = tcv.getContext('2d');
+  tctx.imageSmoothingQuality = 'high';
+
+  let prev = null;
+  for (let i = 0; i < n; i++) {
+    if (stale('load', m.id)) return;
+    const bmp = await createImageBitmap(files[i]);
+    sizes.push([bmp.width, bmp.height]);
+    ctx.clearRect(0, 0, baseW, baseH);
+    ctx.drawImage(bmp, Math.round((baseW - bmp.width) / 2), Math.round((baseH - bmp.height) / 2));
+    bmp.close();
+    const data = ctx.getImageData(0, 0, baseW, baseH).data;
+    const px = new Uint32Array(data.buffer);
+
+    if (!hasAlpha) {
+      for (let p = 3; p < data.length; p += 4) if (data[p] < 255) { hasAlpha = true; break; }
+    }
+    if (prev) {
+      let changed = 0;
+      for (let p = 0; p < px.length; p++) if (px[p] !== prev[p]) changed++;
+      diffs[i] = changed / px.length;
+    } else diffs[i] = 1;
+    prev = px;
+
+    tctx.clearRect(0, 0, tw, th);
+    tctx.drawImage(cv, 0, 0, tw, th);
+    const thumb = tcv.transferToImageBitmap();
+    self.postMessage({ type: 'loadProgress', id: m.id, index: i, total: n, thumb }, [thumb]);
+  }
+  self.postMessage({ type: 'loaded', id: m.id, baseW, baseH, sizes, hasAlpha, diffs }, [diffs.buffer]);
+}
+
+/* ---------- 프레임 렌더링 & 양자화 ---------- */
+
+let rcv = null, rctx = null;
+async function renderFrame(src, outW, outH, matte) {
+  if (!rcv || rcv.width !== outW || rcv.height !== outH) {
+    rcv = new OffscreenCanvas(outW, outH);
+    rctx = rcv.getContext('2d', { willReadFrequently: true });
+  }
+  const bmp = await createImageBitmap(files[src]);
+  const sx = outW / baseW, sy = outH / baseH;
+  rctx.setTransform(1, 0, 0, 1, 0, 0);
+  rctx.clearRect(0, 0, outW, outH);
+  if (matte) { rctx.fillStyle = matte; rctx.fillRect(0, 0, outW, outH); }
+  rctx.imageSmoothingEnabled = true;
+  rctx.imageSmoothingQuality = 'high';
+  const dx = Math.round((baseW - bmp.width) / 2), dy = Math.round((baseH - bmp.height) / 2);
+  rctx.drawImage(bmp, dx * sx, dy * sy, bmp.width * sx, bmp.height * sy);
+  bmp.close();
+  return rctx.getImageData(0, 0, outW, outH).data;
+}
+
+function quantizeFrame(data, keepAlpha) {
+  if (keepAlpha) {
+    let clear = 0;
+    for (let p = 3; p < data.length; p += 4) if (data[p] < ALPHA_CUT) clear++;
+    if (clear > 0) {
+      const total = data.length / 4;
+      const opaqueN = total - clear;
+      let palette;
+      if (opaqueN > 0) {
+        const opaque = new Uint8Array(opaqueN * 4);
+        for (let p = 0, o = 0; p < data.length; p += 4) {
+          if (data[p + 3] >= ALPHA_CUT) {
+            opaque[o] = data[p]; opaque[o + 1] = data[p + 1]; opaque[o + 2] = data[p + 2]; opaque[o + 3] = 255; o += 4;
+          }
+        }
+        palette = quantize(opaque, 255);
+      } else palette = [[0, 0, 0]];
+      const index = applyPalette(data, palette);
+      const ti = palette.length;
+      palette.push([0, 0, 0]);
+      for (let p = 3, i = 0; p < data.length; p += 4, i++) if (data[p] < ALPHA_CUT) index[i] = ti;
+      return { palette, index, transparent: true, transparentIndex: ti };
+    }
+  }
+  const palette = quantize(data, 256);
+  return { palette, index: applyPalette(data, palette), transparent: false, transparentIndex: 0 };
+}
+
+function writeFrame(gif, q, w, h, delayCs, plan, repeat) {
+  gif.writeFrame(q.index, w, h, {
+    palette: q.palette,
+    delay: delayCs * 10,
+    transparent: q.transparent,
+    transparentIndex: q.transparentIndex,
+    dispose: plan.keepAlpha ? 2 : 1,
+    repeat,
+  });
+}
+
+/* ---------- 용량 추정 ---------- */
+
+async function estimate(m) {
+  const { plan } = m;
+  const frames = plan.frames;
+  const k = Math.min(frames.length, m.samples || 6);
+  const picks = [];
+  for (let j = 0; j < k; j++) picks.push(Math.floor((j + 0.5) * frames.length / k));
+
+  const gif = GIFEncoder();
+  let headerBytes = 0;
+  for (let j = 0; j < picks.length; j++) {
+    if (stale('estimate', m.id)) return;
+    const f = frames[picks[j]];
+    const data = await renderFrame(f.src, plan.outW, plan.outH, plan.matte);
+    if (stale('estimate', m.id)) return;
+    const q = quantizeFrame(data, plan.keepAlpha);
+    if (j === 0) headerBytes = 6 + 7 + 19; // 시그니처 + 화면 디스크립터 + 반복 블록(대략)
+    writeFrame(gif, q, plan.outW, plan.outH, f.delay, plan, 0);
+  }
+  gif.finish();
+  const sampleBytes = gif.bytesView().length - headerBytes - 1;
+  const perFrame = sampleBytes / picks.length;
+  const bytes = Math.round(headerBytes + 1 + perFrame * frames.length);
+  self.postMessage({ type: 'estimated', id: m.id, bytes });
+}
+
+/* ---------- 전체 인코딩 ---------- */
+
+async function encode(m) {
+  const { plan } = m;
+  const gif = GIFEncoder();
+  const n = plan.frames.length;
+  for (let i = 0; i < n; i++) {
+    if (stale('encode', m.id)) return;
+    const f = plan.frames[i];
+    const data = await renderFrame(f.src, plan.outW, plan.outH, plan.matte);
+    if (stale('encode', m.id)) return;
+    const q = quantizeFrame(data, plan.keepAlpha);
+    writeFrame(gif, q, plan.outW, plan.outH, f.delay, plan, m.repeat);
+    self.postMessage({ type: 'encodeProgress', id: m.id, done: i + 1, total: n });
+  }
+  gif.finish();
+  const out = gif.bytes();
+  self.postMessage({ type: 'encoded', id: m.id, buffer: out.buffer }, [out.buffer]);
+}
+
+</script>
+<script>
+/* Minimal GIF player: parses the GIF we just made and draws frames to a canvas,
+ * so the preview can be paused and jumped to a specific frame.
+ * Our encoder always writes full-canvas frames, so each frame is drawn on its own. */
+'use strict';
+
+function parseGif(buf) {
+  const u = new Uint8Array(buf);
+  let p = 6;
+  const width = u[p] | (u[p + 1] << 8), height = u[p + 2] | (u[p + 3] << 8);
+  const lsd = u[p + 4];
+  p += 7;
+  let gct = null;
+  if (lsd & 0x80) { const n = 3 * (1 << ((lsd & 7) + 1)); gct = u.subarray(p, p + n); p += n; }
+  const frames = [];
+  let gce = { delay: 0, transparent: false, ti: 0 };
+  while (p < u.length) {
+    const b = u[p++];
+    if (b === 0x21) {
+      const label = u[p++];
+      if (label === 0xf9) {
+        const packed = u[p + 1];
+        gce = { delay: u[p + 2] | (u[p + 3] << 8), transparent: !!(packed & 1), ti: u[p + 4] };
+      }
+      while (u[p]) p += u[p] + 1;
+      p++;
+    } else if (b === 0x2c) {
+      const x = u[p] | (u[p + 1] << 8), y = u[p + 2] | (u[p + 3] << 8);
+      const w = u[p + 4] | (u[p + 5] << 8), h = u[p + 6] | (u[p + 7] << 8);
+      const packed = u[p + 8];
+      p += 9;
+      let pal = gct;
+      if (packed & 0x80) { const n = 3 * (1 << ((packed & 7) + 1)); pal = u.subarray(p, p + n); p += n; }
+      const minCode = u[p++];
+      const start = p;
+      let len = 0;
+      while (u[p]) { len += u[p]; p += u[p] + 1; }
+      p++;
+      frames.push({ x, y, w, h, pal, minCode, start, len, ...gce });
+      gce = { delay: 0, transparent: false, ti: 0 };
+    } else break; // 0x3b trailer
+  }
+  return { u, width, height, frames };
+}
+
+function lzwDecode(u, f) {
+  // gather sub-blocks into one contiguous array
+  const data = new Uint8Array(f.len);
+  for (let p = f.start, o = 0; u[p]; p += u[p] + 1) { data.set(u.subarray(p + 1, p + 1 + u[p]), o); o += u[p]; }
+  const count = f.w * f.h;
+  const out = new Uint8Array(count);
+  const MAX = 4096;
+  const prefix = new Int16Array(MAX), suffix = new Uint8Array(MAX), stack = new Uint8Array(MAX + 1);
+  const clear = 1 << f.minCode, eoi = clear + 1;
+  let size = f.minCode + 1, mask = (1 << size) - 1, avail = clear + 2, old = -1;
+  for (let c = 0; c < clear; c++) suffix[c] = c;
+  let datum = 0, bits = 0, first = 0, top = 0, pi = 0, bi = 0;
+  while (pi < count) {
+    if (top === 0) {
+      if (bits < size) { if (bi >= data.length) break; datum |= data[bi++] << bits; bits += 8; continue; }
+      let code = datum & mask; datum >>>= size; bits -= size;
+      if (code === eoi || code > avail) break;
+      if (code === clear) { size = f.minCode + 1; mask = (1 << size) - 1; avail = clear + 2; old = -1; continue; }
+      if (old === -1) { stack[top++] = suffix[code]; old = code; first = code; continue; }
+      const inCode = code;
+      if (code === avail) { stack[top++] = first; code = old; }
+      while (code > clear) { stack[top++] = suffix[code]; code = prefix[code]; }
+      first = suffix[code];
+      stack[top++] = first;
+      if (avail < MAX) {
+        prefix[avail] = old; suffix[avail] = first; avail++;
+        if ((avail & mask) === 0 && avail < MAX) { size++; mask += avail; }
+      }
+      old = inCode;
+    }
+    out[pi++] = stack[--top];
+  }
+  return out;
+}
+
+class GifPlayer {
+  constructor(canvas, onFrame) {
+    this.cv = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.onFrame = onFrame;
+    this.gif = null; this.cache = []; this.useCache = false;
+    this.idx = 0; this.playing = true; this.timer = 0;
+  }
+  load(buf, keepIndex) {
+    clearTimeout(this.timer);
+    this.cache.forEach((b) => b?.close?.());
+    this.cache = [];
+    this.gif = parseGif(buf);
+    const g = this.gif;
+    this.cv.width = g.width; this.cv.height = g.height;
+    // keep decoded frames in memory only if they fit in ~400 MB
+    this.useCache = g.width * g.height * 4 * g.frames.length < 400 * 1024 * 1024;
+    this.idx = keepIndex != null ? Math.min(keepIndex, g.frames.length - 1) : 0;
+    this.show(this.idx);
+    if (this.playing) this.schedule();
+  }
+  clear() {
+    clearTimeout(this.timer);
+    this.cache.forEach((b) => b?.close?.());
+    this.cache = []; this.gif = null;
+    this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+  }
+  get count() { return this.gif ? this.gif.frames.length : 0; }
+  frameImage(i) {
+    const g = this.gif, f = g.frames[i];
+    const idx = lzwDecode(g.u, f);
+    const lut = new Uint32Array(256);
+    for (let c = 0; c < f.pal.length / 3; c++) lut[c] = 0xff000000 | (f.pal[c * 3 + 2] << 16) | (f.pal[c * 3 + 1] << 8) | f.pal[c * 3];
+    if (f.transparent) lut[f.ti] = 0;
+    const img = new ImageData(f.w, f.h);
+    const px = new Uint32Array(img.data.buffer);
+    for (let k = 0; k < idx.length; k++) px[k] = lut[idx[k]];
+    return img;
+  }
+  show(i) {
+    if (!this.gif) return;
+    const f = this.gif.frames[i];
+    this.idx = i;
+    const cached = this.cache[i];
+    this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+    if (cached) this.ctx.drawImage(cached, f.x, f.y);
+    else {
+      const img = this.frameImage(i);
+      this.ctx.putImageData(img, f.x, f.y);
+      if (this.useCache) createImageBitmap(img).then((b) => { if (this.gif && !this.cache[i]) this.cache[i] = b; else b.close(); });
+    }
+    this.onFrame?.(i);
+  }
+  schedule() {
+    clearTimeout(this.timer);
+    const d = this.gif.frames[this.idx].delay;
+    // browsers treat delays under 0.02s as 0.1s; mimic that
+    const ms = (d < 2 ? 10 : d) * 10;
+    this.timer = setTimeout(() => {
+      if (!this.playing || !this.gif) return;
+      this.show((this.idx + 1) % this.count);
+      this.schedule();
+    }, ms);
+  }
+  play() { if (!this.gif) return; this.playing = true; this.schedule(); }
+  pause() { this.playing = false; clearTimeout(this.timer); }
+  toggle() { this.playing ? this.pause() : this.play(); return this.playing; }
+  seek(i) { this.pause(); this.show(i); }
+}
+
+'use strict';
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+
+/* ---------- Workers ---------- */
+const workerURL = URL.createObjectURL(new Blob([document.getElementById('worker-src').textContent], { type: 'text/javascript' }));
+let wA, wE; // wA: analysis + size estimates, wE: GIF encoding
+let seq = 0;
+const nextId = () => ++seq;
+
+function startWorkers() {
+  wA?.terminate(); wE?.terminate();
+  wA = new Worker(workerURL);
+  wE = new Worker(workerURL);
+  wA.onmessage = onA;
+  wE.onmessage = onE;
+}
+
+/* ---------- State ---------- */
+const st = {
+  n: 0, files: [], baseW: 0, baseH: 0, sizes: [], hasAlpha: false, diffs: null, thumbs: [],
+  fps: 30, w: 0, h: 0, lock: true, dedupe: false,
+  alphaMode: 'keep', matte: '#ffffff', targetOn: false, targetMB: 5,
+  fit: 1, fitFailed: false, plan: null, est: null, loadId: 0,
+  run: 0, encodeId: 0, encodePlan: null, gifPlan: null, gifUrl: null, gifBytes: 0, baseName: 'animation',
+};
+
+/* ---------- Utils ---------- */
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+  return (b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 2 : 1) + ' MB';
+}
+const naturalSort = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+const baseNameOf = (name) => name.replace(/\.[^.]+$/, '').replace(/[\s_\-.]*\d+$/, '') || 'animation';
+const clampInt = (v, lo, hi, dflt) => { v = Math.round(+v); return Number.isFinite(v) && v > 0 ? Math.max(lo, Math.min(hi, v)) : dflt; };
+
+/* ---------- Plan: which frames to show and for how long ---------- */
+function buildPlan(fit = st.fit) {
+  const n = st.n;
+  const frames = [];
+  for (let i = 0; i < n; i++) {
+    // merge only frames that are pixel-for-pixel identical to the previous one
+    const dup = st.dedupe && i > 0 && st.diffs[i] === 0;
+    if (dup) frames[frames.length - 1].units++;
+    else frames.push({ src: i, startU: i, units: 1 });
+  }
+  // GIF delays are in 1/100 s: round the running time so the total length stays exact
+  let minDelay = Infinity;
+  for (const f of frames) {
+    const a = Math.round(f.startU * 100 / st.fps), b = Math.round((f.startU + f.units) * 100 / st.fps);
+    f.delay = Math.max(1, b - a);
+    minDelay = Math.min(minDelay, f.delay);
+  }
+  return {
+    outW: Math.max(1, Math.round(st.w * fit)),
+    outH: Math.max(1, Math.round(st.h * fit)),
+    frames,
+    keepAlpha: st.hasAlpha && st.alphaMode === 'keep',
+    matte: st.hasAlpha && st.alphaMode === 'matte' ? st.matte : null,
+    minDelay,
+    totalCs: frames.reduce((s, f) => s + f.delay, 0),
+  };
+}
+const planMsg = (p) => ({
+  outW: p.outW, outH: p.outH, keepAlpha: p.keepAlpha, matte: p.matte,
+  frames: p.frames.map((f) => ({ src: f.src, delay: f.delay })),
+});
+
+/* ---------- Loading files ---------- */
+async function filesFromDataTransfer(dt) {
+  const entries = [...dt.items].filter((i) => i.kind === 'file').map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const out = [];
+  async function walk(e) {
+    if (e.isFile) out.push(await new Promise((res, rej) => e.file(res, rej)));
+    else if (e.isDirectory) {
+      const r = e.createReader();
+      let batch;
+      do {
+        batch = await new Promise((res, rej) => r.readEntries(res, rej));
+        for (const x of batch) await walk(x);
+      } while (batch.length);
+    }
+  }
+  for (const e of entries) await walk(e);
+  return out;
+}
+
+function loadFiles(list) {
+  const pngs = list.filter((f) => /\.png$/i.test(f.name) || f.type === 'image/png').sort(naturalSort);
+  if (!pngs.length) { toast('No PNG files found. Drop a PNG sequence or a folder of PNGs.'); return; }
+
+  startWorkers();
+  st.thumbs.forEach((t) => t?.close?.());
+  clearGif();
+  Object.assign(st, {
+    files: pngs, n: pngs.length, thumbs: new Array(pngs.length), diffs: null, plan: null, est: null,
+    baseName: baseNameOf(pngs[0].name), run: st.run + 1, encodeId: 0, gifPlan: null,
+  });
+  $('#empty').hidden = true;
+  $('#editor').hidden = false;
+  $('#loading').hidden = false;
+  $('#loadText').textContent = `Analyzing frames 0 / ${st.n}`;
+  $('#loadBar').style.width = '0%';
+  buildStrip();
+  st.loadId = nextId();
+  wA.postMessage({ type: 'load', id: st.loadId, files: pngs });
+}
+
+/* ---------- Worker messages ---------- */
+let pendingEst = null;
+function requestEstimate(plan, samples = 6) {
+  if (pendingEst) pendingEst.resolve(null);
+  const id = nextId();
+  return new Promise((resolve) => {
+    pendingEst = { id, resolve };
+    wA.postMessage({ type: 'estimate', id, plan: planMsg(plan), samples });
+  });
+}
+
+function onA(e) {
+  const m = e.data;
+  if (m.type === 'loadProgress' && m.id === st.loadId) {
+    st.thumbs[m.index] = m.thumb;
+    drawStripThumb(m.index);
+    $('#loadText').textContent = `Analyzing frames ${m.index + 1} / ${m.total}`;
+    $('#loadBar').style.width = ((m.index + 1) / m.total * 100) + '%';
+  } else if (m.type === 'loaded' && m.id === st.loadId) {
+    Object.assign(st, { baseW: m.baseW, baseH: m.baseH, sizes: m.sizes, hasAlpha: m.hasAlpha, diffs: m.diffs, w: m.baseW, h: m.baseH });
+    wE.postMessage({ type: 'init', files: st.files, baseW: st.baseW, baseH: st.baseH });
+    $('#loading').hidden = true;
+    onLoaded();
+  } else if (m.type === 'estimated' && pendingEst && m.id === pendingEst.id) {
+    const p = pendingEst; pendingEst = null; p.resolve(m.bytes);
+  } else if (m.type === 'error') {
+    if (m.kind === 'estimate' && pendingEst?.id === m.id) { const p = pendingEst; pendingEst = null; p.resolve(null); }
+    toast('Error: ' + m.message);
+    if (m.kind === 'load') $('#loading').hidden = true;
+  }
+}
+
+function onE(e) {
+  const m = e.data;
+  if (m.id !== st.encodeId) return;
+  if (m.type === 'encodeProgress') {
+    setBusy(`Building GIF ${Math.round(m.done / m.total * 100)}%`, m.done / m.total);
+  } else if (m.type === 'encoded') {
+    st.encodeId = 0;
+    const blob = new Blob([m.buffer], { type: 'image/gif' });
+    // if paused, stay on the same source frame in the new GIF
+    const keep = player.playing ? null : frameIndexForSrc(st.gifPlan, player.idx, st.encodePlan);
+    clearGif(false);
+    st.gifUrl = URL.createObjectURL(blob);
+    st.gifBytes = blob.size;
+    st.gifPlan = st.encodePlan;
+    player.load(m.buffer, keep);
+    setBusy(null);
+    renderSize();
+  } else if (m.type === 'error') {
+    st.encodeId = 0;
+    setBusy(null);
+    toast('Could not build GIF: ' + m.message);
+  }
+}
+
+/* ---------- After loading ---------- */
+function onLoaded() {
+  const mismatched = st.sizes.filter(([w, h]) => w !== st.baseW || h !== st.baseH).length;
+  $('#srcCount').textContent = `${st.n}`;
+  $('#srcDims').textContent = `${st.baseW} × ${st.baseH}`;
+  $('#srcAlpha').hidden = !st.hasAlpha;
+  $('#sizeWarn').hidden = !mismatched;
+  $('#sizeWarn').textContent = mismatched
+    ? `${mismatched} image(s) differ in size from the first frame (${st.baseW} × ${st.baseH}) and were centered.` : '';
+  $('#alphaGroup').hidden = !st.hasAlpha;
+  renderControls();
+  schedule(0);
+}
+
+/* ---------- Settings change → rebuild the GIF automatically ---------- */
+let timer = 0;
+function schedule(delay = 350) {
+  if (!st.diffs) return;
+  // drop any encode in progress; its settings are out of date
+  if (st.encodeId) { wE.postMessage({ type: 'cancel', kind: 'encode' }); st.encodeId = 0; }
+  st.plan = buildPlan(st.targetOn ? st.fit : 1);
+  renderInfo();
+  setBusy(st.targetOn ? 'Fitting to target size' : 'Building GIF', 0);
+  clearTimeout(timer);
+  timer = setTimeout(rebuild, delay);
+}
+
+async function rebuild() {
+  const run = ++st.run;
+  st.est = null;
+  renderSize(true);
+
+  let fit = 1;
+  if (st.targetOn) {
+    const r = await fitToTarget(run);
+    if (r == null || run !== st.run) return;
+    fit = r.fit; st.est = r.bytes; st.fitFailed = r.failed;
+  } else st.fitFailed = false;
+  st.fit = fit;
+  st.plan = buildPlan(fit);
+  renderInfo();
+
+  // start encoding; show a quick estimate until the real file is ready
+  st.encodeId = nextId();
+  st.encodePlan = st.plan;
+  setBusy('Building GIF 0%', 0);
+  wE.postMessage({ type: 'encode', id: st.encodeId, plan: planMsg(st.plan), repeat: 0 });
+  if (!st.targetOn) {
+    requestEstimate(st.plan).then((b) => {
+      if (b != null && run === st.run && st.encodeId) { st.est = b; renderSize(); }
+    });
+  } else renderSize();
+}
+
+/* Find the scale factor that keeps the GIF under the target. Leaves 5% headroom for estimate error. */
+async function fitToTarget(run) {
+  const safe = st.targetMB * 1024 * 1024 * 0.95;
+  const minFit = Math.min(1, 16 / Math.min(st.w, st.h));
+  let f = 1, lo = null, hi = null, loBytes = null, lastBytes = null;
+  for (let it = 0; it < 7; it++) {
+    const bytes = await requestEstimate(buildPlan(f), 5);
+    if (bytes == null || run !== st.run) return null;
+    lastBytes = bytes;
+    if (bytes <= safe) {
+      if (lo == null || f > lo) { lo = f; loBytes = bytes; }
+      if (f >= 1 || bytes > safe * 0.9) break;
+    } else hi = hi == null ? f : Math.min(hi, f);
+    let next = f * Math.sqrt((safe * 0.97) / bytes);
+    if (lo != null) next = Math.max(next, lo + 0.005);
+    if (hi != null) next = Math.min(next, hi - 0.005);
+    next = Math.max(minFit, Math.min(1, Math.round(next * 1000) / 1000));
+    if (Math.abs(next - f) < 0.004) break;
+    if (hi != null && lo != null && hi - lo < 0.01) break;
+    f = next;
+  }
+  if (lo != null) return { fit: lo, bytes: loBytes, failed: false };
+  return { fit: minFit, bytes: lastBytes, failed: true };
+}
+
+/* ---------- Rendering ---------- */
+function renderControls() {
+  $('#fpsInput').value = st.fps;
+  $('#wInput').value = st.w;
+  $('#hInput').value = st.h;
+  $('#pctInput').value = Math.abs(st.w / st.baseW - st.h / st.baseH) < 0.01 ? Math.round(st.w / st.baseW * 100) : '';
+  $('#lockBtn').classList.toggle('on', st.lock);
+  $('#lockBtn').setAttribute('aria-pressed', st.lock);
+  $('#lockBtn').title = st.lock ? 'Aspect ratio locked' : 'Aspect ratio unlocked';
+  $('#dedupe').checked = st.dedupe;
+  $$('#alphaSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.alphaMode));
+  $('#matteRow').hidden = st.alphaMode !== 'matte';
+  $('#targetOn').checked = st.targetOn;
+  $('#targetInput').disabled = !st.targetOn;
+  $('#targetRow').classList.toggle('disabled', !st.targetOn);
+}
+
+function renderInfo() {
+  const p = st.plan;
+  $('#outFrames').textContent = p.frames.length;
+  $('#outSecs').textContent = (p.totalCs / 100).toFixed(2) + 's';
+  $('#delayWarn').hidden = p.minDelay >= 2;
+  const fitted = st.targetOn && (p.outW !== st.w || p.outH !== st.h);
+  $('#fitNote').hidden = !st.targetOn || !(fitted || st.fitFailed);
+  $('#fitNote').textContent = st.fitFailed ? 'Still over the target at the smallest size.' : `Resized to ${p.outW} × ${p.outH}`;
+  $('#fitNote').classList.toggle('bad', st.fitFailed);
+  updateStripState();
+}
+
+function renderSize(loading = false) {
+  const actual = st.gifUrl && !st.encodeId;
+  const shown = actual ? st.gifBytes : st.est;
+  $('#sizeLabel').textContent = actual ? 'File size' : 'Estimated size';
+  $('#sizeVal').textContent = loading || shown == null ? 'Calculating…' : (actual ? '' : '~ ') + fmtBytes(shown);
+  const over = st.targetOn && shown != null && !loading && shown > st.targetMB * 1024 * 1024;
+  $('#sizeCard').classList.toggle('over', over);
+  $('#dlBtn').disabled = !actual;
+}
+
+function setBusy(text, progress = 0) {
+  const busy = text != null;
+  $('#busy').hidden = !busy;
+  $('#player').classList.toggle('dim', busy);
+  if (busy) {
+    $('#busyText').textContent = text;
+    $('#busyBar').style.width = Math.round(progress * 100) + '%';
+  }
+  $('#gifEmpty').hidden = !!st.gifUrl || busy;
+  $('#player').hidden = !st.gifUrl;
+  renderPlayState();
+}
+
+function clearGif(clearPlayer = true) {
+  if (st.gifUrl) URL.revokeObjectURL(st.gifUrl);
+  st.gifUrl = null; st.gifBytes = 0;
+  if (clearPlayer) { player.clear(); player.playing = true; }
+}
+
+function download() {
+  if (!st.gifUrl) return;
+  const a = document.createElement('a');
+  a.href = st.gifUrl; a.download = st.baseName + '.gif';
+  a.click();
+}
+
+/* ---------- Player ---------- */
+const player = new GifPlayer($('#player'), (i) => {
+  const src = st.gifPlan?.frames[i]?.src;
+  if (nowCell) nowCell.classList.remove('now');
+  nowCell = src != null ? stripCells[src] : null;
+  if (nowCell) {
+    nowCell.classList.add('now');
+    if (!player.playing) nowCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+});
+let nowCell = null;
+
+// map an output frame of one plan to the matching output frame of another plan
+function frameIndexForSrc(fromPlan, idx, toPlan) {
+  if (!fromPlan || !toPlan) return 0;
+  const src = fromPlan.frames[idx]?.src ?? 0;
+  return outputFrameFor(toPlan, src);
+}
+function outputFrameFor(plan, src) {
+  const fs = plan.frames;
+  for (let k = 0; k < fs.length; k++) if (src >= fs[k].startU && src < fs[k].startU + fs[k].units) return k;
+  return 0;
+}
+function renderPlayState() {
+  $('#playIcon').hidden = !st.gifUrl || player.playing || !$('#busy').hidden;
+}
+$('#viewer').onclick = () => {
+  if (!st.gifUrl) return;
+  player.toggle();
+  renderPlayState();
+};
+
+/* ---------- Frame strip ---------- */
+let stripCells = [];
+function buildStrip() {
+  const strip = $('#strip');
+  strip.innerHTML = '';
+  nowCell = null;
+  stripCells = st.files.map((f, i) => {
+    const cell = document.createElement('button');
+    cell.className = 'cell';
+    cell.title = f.name;
+    cell.innerHTML = `<canvas width="1" height="1"></canvas><span class="num">${i + 1}</span><span class="dur"></span>`;
+    cell.onclick = () => seekToSource(i);
+    strip.appendChild(cell);
+    return cell;
+  });
+}
+function seekToSource(i) {
+  if (!st.gifUrl || !st.gifPlan) return;
+  player.seek(outputFrameFor(st.gifPlan, i));
+  renderPlayState();
+}
+function drawStripThumb(i) {
+  const th = st.thumbs[i], cv = stripCells[i]?.querySelector('canvas');
+  if (!th || !cv) return;
+  cv.width = th.width; cv.height = th.height;
+  cv.getContext('2d').drawImage(th, 0, 0);
+}
+function updateStripState() {
+  const used = new Map(st.plan.frames.map((f) => [f.src, f.units]));
+  stripCells.forEach((c, i) => {
+    const u = used.get(i);
+    c.classList.toggle('off', !u);
+    c.querySelector('.dur').textContent = u > 1 ? '×' + u : '';
+  });
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), 4000);
+}
+
+/* ---------- Events ---------- */
+let dragDepth = 0;
+addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('#dropOverlay').hidden = false; });
+addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; $('#dropOverlay').hidden = true; } });
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', async (e) => {
+  e.preventDefault(); dragDepth = 0; $('#dropOverlay').hidden = true;
+  loadFiles(await filesFromDataTransfer(e.dataTransfer));
+});
+$('#pickFiles').onchange = (e) => { loadFiles([...e.target.files]); e.target.value = ''; };
+$('#pickFolder').onchange = (e) => { loadFiles([...e.target.files]); e.target.value = ''; };
+$$('[data-pick]').forEach((b) => (b.onclick = () => $('#' + b.dataset.pick).click()));
+
+const MAXD = 8192;
+const changed = () => { renderControls(); schedule(); };
+$('#fpsInput').onchange = (e) => { st.fps = clampInt(e.target.value, 1, 100, 30); changed(); };
+$('#wInput').onchange = (e) => {
+  st.w = clampInt(e.target.value, 1, MAXD, st.w);
+  if (st.lock) st.h = Math.max(1, Math.round(st.w * st.baseH / st.baseW));
+  changed();
+};
+$('#hInput').onchange = (e) => {
+  st.h = clampInt(e.target.value, 1, MAXD, st.h);
+  if (st.lock) st.w = Math.max(1, Math.round(st.h * st.baseW / st.baseH));
+  changed();
+};
+$('#pctInput').onchange = (e) => {
+  const p = clampInt(e.target.value, 1, 400, 100) / 100;
+  st.w = Math.max(1, Math.round(st.baseW * p)); st.h = Math.max(1, Math.round(st.baseH * p));
+  changed();
+};
+$('#lockBtn').onclick = () => {
+  st.lock = !st.lock;
+  if (st.lock) { // snap back to the original aspect ratio when locking
+    const nh = Math.max(1, Math.round(st.w * st.baseH / st.baseW));
+    if (nh !== st.h) { st.h = nh; changed(); return; }
+  }
+  renderControls();
+};
+$('#dedupe').onchange = (e) => { st.dedupe = e.target.checked; changed(); };
+$$('#alphaSeg button').forEach((b) => (b.onclick = () => { st.alphaMode = b.dataset.v; changed(); }));
+$('#matteColor').oninput = (e) => { st.matte = e.target.value; schedule(); };
+$('#targetOn').onchange = (e) => { st.targetOn = e.target.checked; st.fit = 1; changed(); if (st.targetOn) $('#targetInput').focus(); };
+$('#targetInput').onchange = (e) => { st.targetMB = Math.max(0.1, +e.target.value || 5); e.target.value = st.targetMB; changed(); };
+$('#dlBtn').onclick = download;
+// Enter in a number field applies it right away
+$$('input[type=number]').forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); }));
+
+startWorkers();
+
+</script>
+</body>
+</html>
