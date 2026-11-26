@@ -7,10 +7,10 @@ Trim and split a video or a PNG sequence, then export it as GIF, MP4 or PNG — 
 ## Features
 
 - Open a video (MP4, MOV, WebM) or PNG files / a folder of PNGs (natural filename order)
-- Export as **GIF**, **MP4** (H.264) or **PNG** frames (ZIP)
+- Export as **GIF**, **MP4** (H.264), **PNG** frames (ZIP) or **Lottie** JSON (image sequence, plays in lottie-web / iOS / Android players)
 - Clips: trim with iPhone-style handles on the frame strip, split at the current frame, edit ranges by number; each clip exports separately (`name_001-040.gif`)
 - Frame rate (video sources start at their own frame rate), output size in px with aspect-ratio lock
-- GIF: merge duplicate frames, fit under a target file size
+- GIF and Lottie: merge duplicate frames, fit under a target file size
 - MP4: target file size sets the bitrate
 - Transparent sources: keep transparency (GIF/PNG) or fill with a color from the color picker
 - Preview: click to pause / play, click a frame to jump to it

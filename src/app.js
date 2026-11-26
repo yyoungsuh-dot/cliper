@@ -32,6 +32,7 @@ const FMT = {
   gif: { ext: 'gif', one: 'GIF', many: 'GIFs' },
   mp4: { ext: 'mp4', one: 'MP4', many: 'MP4s' },
   png: { ext: 'zip', one: 'PNGs (ZIP)', many: 'PNGs (ZIP)' },
+  lottie: { ext: 'json', one: 'Lottie', many: 'Lottie files' },
 };
 
 /* ---------- Utils ---------- */
@@ -53,7 +54,7 @@ const isFullClip = () => st.clips.length === 1 && st.clips[0].s === 0 && st.clip
 const segments = () => st.clips;
 const sig = () => {
   const f = st.format;
-  return JSON.stringify([f, f !== 'png' && st.fps, st.w, st.h, f === 'gif' && st.dedupe,
+  return JSON.stringify([f, f !== 'png' && st.fps, st.w, st.h, (f === 'gif' || f === 'lottie') && st.dedupe,
     st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte + st.matteA, f !== 'png' && st.targetOn && st.targetMB]);
 };
 const keyOf = (g, s = sig()) => `${s}|${g.s}-${g.e}`;
@@ -62,7 +63,7 @@ const segOfFrame = (f) => st.clips.findIndex((g) => f >= g.s && f <= g.e);
 
 /* ---------- Plan: which frames to show and for how long ---------- */
 function buildPlan(g, fit = 1) {
-  const merge = st.format === 'gif' && st.dedupe;
+  const merge = (st.format === 'gif' || st.format === 'lottie') && st.dedupe;
   const frames = [];
   for (let i = g.s; i <= g.e; i++) {
     if (merge && i > g.s && st.diffs[i] === 0) frames[frames.length - 1].units++;
@@ -89,7 +90,7 @@ function buildPlan(g, fit = 1) {
 }
 const planMsg = (p) => ({
   outW: p.outW, outH: p.outH, keepAlpha: p.keepAlpha, matte: p.matte,
-  frames: p.frames.map((f) => ({ src: f.src, delay: f.delay })),
+  frames: p.frames.map((f) => ({ src: f.src, delay: f.delay, start: f.startU - p.s, units: f.units })),
 });
 const outputFrameFor = (plan, src) => {
   const fs = plan.frames;
@@ -162,7 +163,7 @@ function requestEncode(plan, extra, onProgress) {
   const id = nextId();
   return new Promise((resolve) => {
     pendingEnc = { id, resolve, onProgress };
-    wE.postMessage({ type: 'encode', id, fmt: st.format, plan: planMsg(plan), mbUrl: MB_URL, fps: st.fps, ...extra });
+    wE.postMessage({ type: 'encode', id, fmt: st.format, plan: planMsg(plan), mbUrl: MB_URL, fps: st.fps, name: st.baseName, ...extra });
   });
 }
 function cancelEncode() {
@@ -253,11 +254,12 @@ async function rebuild() {
     const g = segs[i], key = keyOf(g, s);
     if (st.results.has(key)) continue;
     const fmt = st.format;
-    st.building = { i, progress: 0, phase: fmt === 'gif' && st.targetOn ? 'fit' : 'encode' };
+    const fits = (fmt === 'gif' || fmt === 'lottie') && st.targetOn; // these shrink the size to meet the target
+    st.building = { i, progress: 0, phase: fits ? 'fit' : 'encode' };
     renderBusy(); renderSize();
 
     let fit = 1, failed = false, extra = {};
-    if (fmt === 'gif' && st.targetOn) {
+    if (fits) {
       const r = await fitToTarget(run, g);
       if (r == null || run !== st.run) return;
       fit = r.fit; failed = r.failed;
@@ -268,7 +270,7 @@ async function rebuild() {
       const secs = plan.totalCs / 100;
       extra.bitrate = Math.max(50_000, Math.floor((st.targetMB * 1024 * 1024 * 8 * 0.92) / secs));
     }
-    if (i === st.sel && segs.length === 1 && fmt !== 'mp4' && !(fmt === 'gif' && st.targetOn)) {
+    if (i === st.sel && segs.length === 1 && fmt !== 'mp4' && !fits) {
       requestEstimate(plan).then((b) => { if (b != null && run === st.run && !st.results.has(key)) { st.est = b; renderSize(); } });
     }
     st.building = { i, progress: 0, phase: 'encode' };
@@ -289,6 +291,9 @@ async function rebuild() {
 }
 
 function makeResult(res, plan, failed) {
+  if (res.fmt === 'lottie') {
+    return { fmt: 'lottie', frames: res.frames, blob: res.json, url: URL.createObjectURL(res.json), bytes: res.json.size, plan, failed };
+  }
   if (res.fmt === 'png') {
     const bytes = res.frames.reduce((s, f) => s + f.size, 0);
     return { fmt: 'png', frames: res.frames, bytes, plan, failed };
@@ -332,7 +337,7 @@ function renderControls() {
   $('#lockBtn').classList.toggle('on', st.lock);
   $('#lockBtn').setAttribute('aria-pressed', st.lock);
   $('#lockBtn').title = st.lock ? 'Aspect ratio locked' : 'Aspect ratio unlocked';
-  $('#dedupeCard').hidden = f !== 'gif';
+  $('#dedupeCard').hidden = f !== 'gif' && f !== 'lottie';
   $('#dedupe').checked = st.dedupe;
   // transparency: MP4 has no alpha, so the background is always filled
   $('#alphaGroup').hidden = !st.hasAlpha;
@@ -359,7 +364,7 @@ function renderInfo() {
   $('#delayWarn').hidden = st.format !== 'gif' || p.minDelay >= 2;
 
   const r = resultFor(st.sel);
-  const fitted = st.format === 'gif' && st.targetOn && r && (r.plan.outW !== st.w || r.plan.outH !== st.h);
+  const fitted = (st.format === 'gif' || st.format === 'lottie') && st.targetOn && r && (r.plan.outW !== st.w || r.plan.outH !== st.h);
   $('#fitNote').hidden = !st.targetOn || !r || !(fitted || r.failed);
   if (r) {
     $('#fitNote').textContent = r.failed ? 'Still over the target at the smallest size.' : `Resized to ${r.plan.outW} × ${r.plan.outH}`;
@@ -405,7 +410,7 @@ function renderBusy() {
   const b = st.building;
   $('#busy').hidden = ready;
   if (!ready) {
-    const verb = { gif: 'Building GIF', mp4: 'Encoding MP4', png: 'Rendering PNGs' }[st.format];
+    const verb = { gif: 'Building GIF', mp4: 'Encoding MP4', png: 'Rendering PNGs', lottie: 'Building Lottie' }[st.format];
     if (b && b.i === st.sel) {
       $('#busyText').textContent = b.phase === 'fit' ? 'Fitting to target size' : `${verb} ${Math.round(b.progress * 100)}%`;
       $('#busyBar').style.width = Math.round(b.progress * 100) + '%';
@@ -432,6 +437,7 @@ const players = {
   png: new PngSeqPlayer($('#player'), onPlayerFrame),
   mp4: new VideoPlayer($('#vplayer'), onPlayerFrame),
 };
+players.lottie = players.png; // Lottie is previewed from its PNG frames
 const player = () => players[shownFmt || st.format];
 const activeEl = () => (st.format === 'mp4' ? $('#vplayer') : $('#player'));
 let nowCell = null, shownKey = null, shownPlan = null, shownFmt = null, pendingSeekSrc = null, wantPlaying = true;
@@ -453,14 +459,14 @@ function showSelected() {
         if (src != null && src >= g.s && src <= g.e) { wantPlaying = false; keep = outputFrameFor(r.plan, src); }
         else wantPlaying = true;
       }
-      if (prev && shownFmt !== r.fmt) prev.clear();
+      if (prev && prev !== players[r.fmt]) prev.clear();
       shownPlan = r.plan; shownKey = key; shownFmt = r.fmt;
       $('#player').hidden = r.fmt === 'mp4';
       $('#vplayer').hidden = r.fmt !== 'mp4';
       const p = players[r.fmt];
       p.playing = wantPlaying;
       if (r.fmt === 'gif') p.load(r.buffer, keep);
-      else if (r.fmt === 'png') p.load({ frames: r.frames.map((f) => f.blob), delays: r.plan.frames.map((f) => f.delay), w: r.plan.outW, h: r.plan.outH }, keep);
+      else if (r.fmt === 'png' || r.fmt === 'lottie') p.load({ frames: r.frames.map((f) => f.blob), delays: r.plan.frames.map((f) => f.delay), w: r.plan.outW, h: r.plan.outH }, keep);
       else {
         let t = 0;
         const starts = r.plan.frames.map((f) => { const s0 = t; t += f.delay / 100; return s0; });

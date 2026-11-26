@@ -189,7 +189,9 @@ async function estimate(m) {
     if (stale('estimate', m.id)) return;
   }
   if (gif) { gif.finish(); bytes = gif.bytesView().length - 32; }
-  const total = Math.round(32 + (bytes / Math.max(1, count)) * frames.length);
+  let total = Math.round(32 + (bytes / Math.max(1, count)) * frames.length);
+  // Lottie embeds the PNGs as base64 (4/3 larger) plus a small JSON entry per frame
+  if (fmt === 'lottie') total = Math.round(total * 4 / 3 + frames.length * 420 + 300);
   self.postMessage({ type: 'estimated', id: m.id, bytes: total });
 }
 
@@ -216,18 +218,19 @@ async function encode(m) {
     return;
   }
 
-  if (fmt === 'png') {
+  if (fmt === 'png' || fmt === 'lottie') {
     const frames = [];
     for await (const f of source.frames(want)) {
       if (stale('encode', m.id)) return;
       const ctx = draw(f, plan.outW, plan.outH, plan.matte);
       const blob = await ctx.canvas.convertToBlob({ type: 'image/png' });
-      const crc = crc32(new Uint8Array(await blob.arrayBuffer()));
+      const crc = fmt === 'png' ? crc32(new Uint8Array(await blob.arrayBuffer())) : 0;
       frames.push({ src: f.i, blob, crc, size: blob.size });
       progress(++done);
     }
     if (stale('encode', m.id)) return;
-    self.postMessage({ type: 'encoded', id: m.id, fmt, frames });
+    const json = fmt === 'lottie' ? lottieJson(plan, frames, m.fps, m.name) : null;
+    self.postMessage({ type: 'encoded', id: m.id, fmt, frames, json });
     return;
   }
 
@@ -257,6 +260,28 @@ async function encode(m) {
   if (stale('encode', m.id)) return;
   const buf = output.target.buffer;
   self.postMessage({ type: 'encoded', id: m.id, fmt, buffer: buf }, [buf]);
+}
+
+/* ---------- Lottie (image sequence) ----------
+ * One image asset per output frame (embedded as a base64 PNG) and one image layer
+ * per frame that is visible from `ip` to `op`. Merged duplicates become one longer layer. */
+function lottieJson(plan, frames, fps, name) {
+  const reader = new FileReaderSync();
+  const total = plan.frames.reduce((s, f) => s + f.units, 0);
+  const parts = [JSON.stringify({ v: '5.7.4', fr: fps, ip: 0, op: total, w: plan.outW, h: plan.outH, nm: name || 'Cliper', ddd: 0 }).slice(0, -1), ',"assets":['];
+  frames.forEach((f, k) => {
+    parts.push((k ? ',' : '') + JSON.stringify({ id: 'f' + k, w: plan.outW, h: plan.outH, u: '', p: reader.readAsDataURL(f.blob), e: 1 }));
+  });
+  parts.push('],"layers":[');
+  plan.frames.forEach((pf, k) => {
+    parts.push((k ? ',' : '') + JSON.stringify({
+      ddd: 0, ind: k + 1, ty: 2, nm: 'Frame ' + (pf.src + 1), refId: 'f' + k, sr: 1,
+      ks: { o: { a: 0, k: 100 }, r: { a: 0, k: 0 }, p: { a: 0, k: [0, 0, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 0, k: [100, 100, 100] } },
+      ao: 0, ip: pf.start, op: pf.start + pf.units, st: 0, bm: 0,
+    }));
+  });
+  parts.push('],"markers":[]}');
+  return new Blob(parts, { type: 'application/json' });
 }
 
 /* ---------- CRC32 (for the ZIP of PNG frames) ---------- */
