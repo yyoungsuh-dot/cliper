@@ -2,7 +2,7 @@
 
 Trim and split a video or a PNG sequence, then export it as GIF, MP4 or PNG — right in the browser. Files are never uploaded.
 
-**Use it:** https://yyoungsuh-dot.github.io/png-to-gif/ (Chrome: ⋮ → Cast, save, and share → Install page as app)
+**Use it:** https://yyoungsuh-dot.github.io/cliper/ (Chrome: ⋮ → Cast, save, and share → Install page as app)
 
 ## Features
 
