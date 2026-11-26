@@ -212,10 +212,11 @@ aside .card > .title + * { margin-top: 12px; }
 #matteRow input { width: 40px; height: 32px; border: 0; border-radius: 10px; padding: 0; background: none; cursor: pointer; }
 
 /* Clips */
-.clip-head { display: flex; align-items: center; justify-content: space-between; }
-.linkbtn { border: 0; background: none; color: var(--g500); font-size: 14px; font-weight: 600; padding: 4px 6px; border-radius: 8px; }
+/* header row is exactly one title line tall, so the content below starts 12px down like every other card */
+.clip-head { display: flex; align-items: center; justify-content: space-between; height: 25.5px; }
+.linkbtn { border: 0; background: none; color: var(--g500); font-size: 14px; font-weight: 600; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; }
 .linkbtn:hover { background: var(--field); color: var(--g700); }
-#splitClip { width: 100%; height: 44px; }
+#splitClip { width: 100%; height: 44px; margin-top: 12px; }
 #clipList { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 #clipList:empty { display: none; }
 .clip {
@@ -385,10 +386,10 @@ aside .card > .title + * { margin-top: 12px; }
         <div class="title">Clips</div>
         <button class="linkbtn" id="resetClips" hidden>Reset</button>
       </div>
+      <div id="clipList"></div>
       <button class="btn soft" id="splitClip">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/></svg>Split clip
       </button>
-      <div id="clipList"></div>
     </section>
 
     <section class="card" id="fpsCard">
@@ -1500,7 +1501,8 @@ function renderSize() {
   const over = st.format !== 'png' && st.targetOn && results.some((r) => r && r.bytes > st.targetMB * 1024 * 1024);
   $('#sizeCard').classList.toggle('over', over);
   $('#dlBtn').disabled = !all;
-  $('#dlBtn').textContent = st.format === 'png' ? 'Download PNGs (ZIP)' : multi ? `Download ${segs.length} ${F.many}` : `Download ${F.one}`;
+  $('#dlBtn').textContent = st.format === 'png' ? (pngFrameCount() === 1 ? 'Download PNG' : 'Download PNGs (ZIP)')
+    : multi ? `Download ${segs.length} ${F.many}` : `Download ${F.one}`;
 }
 
 function renderBusy() {
@@ -1618,6 +1620,12 @@ async function download() {
   const named = !isFullClip();
   if (st.format === 'png') {
     const pad4 = (k) => String(k).padStart(Math.max(4, String(st.n).length), '0');
+    // a single frame in total: save it as a plain PNG, no ZIP
+    if (pngFrameCount() === 1) {
+      const f = results[0].frames[0];
+      save(URL.createObjectURL(f.blob), st.n === 1 ? `${st.baseName}.png` : `${st.baseName}_${pad4(f.src + 1)}.png`, true);
+      return;
+    }
     const entries = [];
     segs.forEach((g, i) => {
       const dir = segs.length > 1 ? `${st.baseName}_${range(g)}/` : '';
@@ -1633,6 +1641,7 @@ async function download() {
     if (i < segs.length - 1) await new Promise((res) => setTimeout(res, 300));
   }
 }
+const pngFrameCount = () => st.clips.reduce((s, g) => s + (g.e - g.s + 1), 0);
 function save(url, name, revoke) {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();

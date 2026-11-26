@@ -212,10 +212,11 @@ aside .card > .title + * { margin-top: 12px; }
 #matteRow input { width: 40px; height: 32px; border: 0; border-radius: 10px; padding: 0; background: none; cursor: pointer; }
 
 /* Clips */
-.clip-head { display: flex; align-items: center; justify-content: space-between; }
-.linkbtn { border: 0; background: none; color: var(--g500); font-size: 14px; font-weight: 600; padding: 4px 6px; border-radius: 8px; }
+/* header row is exactly one title line tall, so the content below starts 12px down like every other card */
+.clip-head { display: flex; align-items: center; justify-content: space-between; height: 25.5px; }
+.linkbtn { border: 0; background: none; color: var(--g500); font-size: 14px; font-weight: 600; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; }
 .linkbtn:hover { background: var(--field); color: var(--g700); }
-#splitClip { width: 100%; height: 44px; }
+#splitClip { width: 100%; height: 44px; margin-top: 12px; }
 #clipList { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 #clipList:empty { display: none; }
 .clip {
@@ -385,10 +386,10 @@ aside .card > .title + * { margin-top: 12px; }
         <div class="title">Clips</div>
         <button class="linkbtn" id="resetClips" hidden>Reset</button>
       </div>
+      <div id="clipList"></div>
       <button class="btn soft" id="splitClip">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/></svg>Split clip
       </button>
-      <div id="clipList"></div>
     </section>
 
     <section class="card" id="fpsCard">

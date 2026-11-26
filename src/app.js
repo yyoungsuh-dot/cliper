@@ -395,7 +395,8 @@ function renderSize() {
   const over = st.format !== 'png' && st.targetOn && results.some((r) => r && r.bytes > st.targetMB * 1024 * 1024);
   $('#sizeCard').classList.toggle('over', over);
   $('#dlBtn').disabled = !all;
-  $('#dlBtn').textContent = st.format === 'png' ? 'Download PNGs (ZIP)' : multi ? `Download ${segs.length} ${F.many}` : `Download ${F.one}`;
+  $('#dlBtn').textContent = st.format === 'png' ? (pngFrameCount() === 1 ? 'Download PNG' : 'Download PNGs (ZIP)')
+    : multi ? `Download ${segs.length} ${F.many}` : `Download ${F.one}`;
 }
 
 function renderBusy() {
@@ -513,6 +514,12 @@ async function download() {
   const named = !isFullClip();
   if (st.format === 'png') {
     const pad4 = (k) => String(k).padStart(Math.max(4, String(st.n).length), '0');
+    // a single frame in total: save it as a plain PNG, no ZIP
+    if (pngFrameCount() === 1) {
+      const f = results[0].frames[0];
+      save(URL.createObjectURL(f.blob), st.n === 1 ? `${st.baseName}.png` : `${st.baseName}_${pad4(f.src + 1)}.png`, true);
+      return;
+    }
     const entries = [];
     segs.forEach((g, i) => {
       const dir = segs.length > 1 ? `${st.baseName}_${range(g)}/` : '';
@@ -528,6 +535,7 @@ async function download() {
     if (i < segs.length - 1) await new Promise((res) => setTimeout(res, 300));
   }
 }
+const pngFrameCount = () => st.clips.reduce((s, g) => s + (g.e - g.s + 1), 0);
 function save(url, name, revoke) {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
