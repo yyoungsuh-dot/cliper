@@ -1,6 +1,6 @@
 {
-  "name": "Framecut",
-  "short_name": "Framecut",
+  "name": "Cliper",
+  "short_name": "Cliper",
   "description": "Trim and split videos or PNG sequences, then export GIF, MP4 or PNG. No uploads.",
   "start_url": "./",
   "scope": "./",

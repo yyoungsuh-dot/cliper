@@ -1,4 +1,4 @@
-# Framecut
+# Cliper
 
 Trim and split a video or a PNG sequence, then export it as GIF, MP4 or PNG — right in the browser. Files are never uploaded.
 
