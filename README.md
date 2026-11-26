@@ -8,11 +8,13 @@ Turn a PNG image sequence into an animated GIF, right in the browser. Files are 
 
 - Drag and drop PNG files or a whole folder (natural filename order: `frame_2` before `frame_10`)
 - Frame rate (default 30 fps), with exact timing despite GIF's 1/100 s delay unit
-- Output width / height in px or %, with aspect-ratio lock
+- Output width / height in px, with aspect-ratio lock
 - Merge duplicate frames: identical consecutive frames become one longer frame
 - Target file size: shrinks the GIF to fit under a size you set
 - Live file size estimate
 - Preview: click to pause / play, click a frame to jump to it
+- Clips: split at pauses automatically, add clips, edit ranges by number or by dragging handles; each clip downloads as its own GIF (`name_001-040.gif`)
+- Installable as an app (Chrome: ⋮ → Cast, save, and share → Install page as app)
 - Transparent PNGs: keep transparency or fill with a background color
 - Large sequences (e.g. 1080p × 300) are processed one frame at a time in Web Workers
 
