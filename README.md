@@ -1,26 +1,23 @@
-# PNG → GIF
+# Framecut
 
-Turn a PNG image sequence into an animated GIF, right in the browser. Files are never uploaded.
+Trim and split a video or a PNG sequence, then export it as GIF, MP4 or PNG — right in the browser. Files are never uploaded.
 
-**Use it:** open `index.html` in a browser (double-click works), or visit the GitHub Pages site.
+**Use it:** https://yyoungsuh-dot.github.io/png-to-gif/ (Chrome: ⋮ → Cast, save, and share → Install page as app)
 
 ## Features
 
-- Drag and drop PNG files or a whole folder (natural filename order: `frame_2` before `frame_10`)
-- Frame rate (default 30 fps), with exact timing despite GIF's 1/100 s delay unit
-- Output width / height in px, with aspect-ratio lock
-- Merge duplicate frames: identical consecutive frames become one longer frame
-- Target file size: shrinks the GIF to fit under a size you set
-- Live file size estimate
+- Open a video (MP4, MOV, WebM) or PNG files / a folder of PNGs (natural filename order)
+- Export as **GIF**, **MP4** (H.264) or **PNG** frames (ZIP)
+- Clips: trim with iPhone-style handles on the frame strip, split at the current frame, edit ranges by number; each clip exports separately (`name_001-040.gif`)
+- Frame rate (video sources start at their own frame rate), output size in px with aspect-ratio lock
+- GIF: merge duplicate frames, fit under a target file size
+- MP4: target file size sets the bitrate
+- Transparent sources: keep transparency (GIF/PNG) or fill with a color from the color picker
 - Preview: click to pause / play, click a frame to jump to it
-- Clips: split at pauses automatically, add clips, edit ranges by number or by dragging handles; each clip downloads as its own GIF (`name_001-040.gif`)
-- Installable as an app (Chrome: ⋮ → Cast, save, and share → Install page as app)
-- Transparent PNGs: keep transparency or fill with a background color
-- Large sequences (e.g. 1080p × 300) are processed one frame at a time in Web Workers
 
 ## Development
 
-Source lives in `src/`. After editing, rebuild the single-file app:
+Source lives in `src/`. After editing, rebuild the app:
 
 ```bash
 python3 build.py
@@ -29,9 +26,13 @@ python3 build.py
 | File | Role |
 | --- | --- |
 | `src/index.html` | Layout and styles |
-| `src/app.js` | UI, settings, frame planning, target-size fitting |
-| `src/worker.js` | Frame analysis, size estimates, GIF encoding (Web Worker) |
-| `src/player.js` | GIF decoder/player used for the preview |
-| `src/gifenc.min.js` | [gifenc](https://github.com/mattdesl/gifenc) encoder (MIT) |
+| `src/app.js` | UI, clips, planning, export and download |
+| `src/worker.js` | Decoding, analysis, size estimates, GIF / MP4 / PNG encoding (Web Worker) |
+| `src/player.js` | Preview players for GIF, PNG frames and MP4 |
+| `src/colorpicker.js` | Background color picker |
+| `src/gifenc.min.js` | [gifenc](https://github.com/mattdesl/gifenc) GIF encoder (MIT) |
+| `vendor/mediabunny.min.js` | [Mediabunny](https://github.com/Vanilagy/mediabunny) video decode / MP4 encode (MPL-2.0), loaded by the worker |
+
+Video features need the page served over http(s) (GitHub Pages or a local server); opening `index.html` from disk supports PNG input only.
 
 See `THIRD_PARTY_LICENSES.md` for bundled library licenses.

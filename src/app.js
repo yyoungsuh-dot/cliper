@@ -4,7 +4,8 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 
 /* ---------- Workers ---------- */
 const workerURL = URL.createObjectURL(new Blob([document.getElementById('worker-src').textContent], { type: 'text/javascript' }));
-let wA, wE; // wA: analysis + size estimates, wE: GIF encoding
+const MB_URL = new URL('vendor/mediabunny.min.js', location.href).href;
+let wA, wE; // wA: analysis + size estimates, wE: encoding
 let seq = 0;
 const nextId = () => ++seq;
 
@@ -18,13 +19,19 @@ function startWorkers() {
 
 /* ---------- State ---------- */
 const st = {
-  n: 0, files: [], baseW: 0, baseH: 0, sizes: [], hasAlpha: false, diffs: null, thumbs: [],
-  fps: 30, w: 0, h: 0, lock: true, dedupe: false,
-  alphaMode: 'keep', matte: '#ffffff', targetOn: false, targetMB: 5,
-  clips: [],          // [{s, e}] 0-based, inclusive. Empty = the whole sequence is one GIF.
-  sel: 0,             // selected segment index
-  results: new Map(), // key → { blob, url, bytes, buffer, plan, failed }
+  kind: 'png', name: '', n: 0, files: [], video: null, srcFps: null,
+  baseW: 0, baseH: 0, sizes: [], hasAlpha: false, diffs: null, thumbs: [],
+  format: 'gif', fps: 30, w: 0, h: 0, lock: true, dedupe: false,
+  alphaMode: 'keep', matte: '#FFFFFF', targetOn: false, targetMB: 5,
+  clips: [],          // [{s, e}] 0-based, inclusive; always at least one once loaded
+  sel: 0,
+  results: new Map(), // key → result
   est: null, loadId: 0, run: 0, building: null, baseName: 'animation',
+};
+const FMT = {
+  gif: { ext: 'gif', one: 'GIF', many: 'GIFs' },
+  mp4: { ext: 'mp4', one: 'MP4', many: 'MP4s' },
+  png: { ext: 'zip', one: 'PNGs (ZIP)', many: 'PNGs (ZIP)' },
 };
 
 /* ---------- Utils ---------- */
@@ -35,39 +42,46 @@ function fmtBytes(b) {
 }
 const naturalSort = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 const baseNameOf = (name) => name.replace(/\.[^.]+$/, '').replace(/[\s_\-.]*\d+$/, '') || 'animation';
-const clampInt = (v, lo, hi, dflt) => { v = Math.round(+v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt; };
+const clampNum = (v, lo, hi, dflt) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt; };
+const clampInt = (v, lo, hi, dflt) => Math.round(clampNum(v, lo, hi, dflt));
 const padNum = (k) => String(k).padStart(Math.max(3, String(st.n).length), '0');
+const isVideoFile = (f) => /^video\//.test(f.type) || /\.(mp4|m4v|mov|webm|mkv)$/i.test(f.name);
+const isPngFile = (f) => f.type === 'image/png' || /\.png$/i.test(f.name);
+const isFullClip = () => st.clips.length === 1 && st.clips[0].s === 0 && st.clips[0].e === st.n - 1;
 
-/* ---------- Segments (clips) ---------- */
-const segments = () => (st.clips.length ? st.clips : [{ s: 0, e: st.n - 1 }]);
-const sig = () => JSON.stringify([st.fps, st.w, st.h, st.dedupe, st.hasAlpha && st.alphaMode, st.hasAlpha && st.alphaMode === 'matte' && st.matte, st.targetOn && st.targetMB]);
+/* ---------- Clips ---------- */
+const segments = () => st.clips;
+const sig = () => {
+  const f = st.format;
+  return JSON.stringify([f, f !== 'png' && st.fps, st.w, st.h, f === 'gif' && st.dedupe,
+    st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte, f !== 'png' && st.targetOn && st.targetMB]);
+};
 const keyOf = (g, s = sig()) => `${s}|${g.s}-${g.e}`;
-const resultFor = (i) => { const g = segments()[i]; return g ? st.results.get(keyOf(g)) : null; };
-const segOfFrame = (f) => segments().findIndex((g) => f >= g.s && f <= g.e);
+const resultFor = (i) => { const g = st.clips[i]; return g ? st.results.get(keyOf(g)) : null; };
+const segOfFrame = (f) => st.clips.findIndex((g) => f >= g.s && f <= g.e);
 
 /* ---------- Plan: which frames to show and for how long ---------- */
 function buildPlan(g, fit = 1) {
+  const merge = st.format === 'gif' && st.dedupe;
   const frames = [];
   for (let i = g.s; i <= g.e; i++) {
-    // merge only frames that are pixel-for-pixel identical to the previous one
-    const dup = st.dedupe && i > g.s && st.diffs[i] === 0;
-    if (dup) frames[frames.length - 1].units++;
+    if (merge && i > g.s && st.diffs[i] === 0) frames[frames.length - 1].units++;
     else frames.push({ src: i, startU: i, units: 1 });
   }
-  // GIF delays are in 1/100 s: round the running time so the total length stays exact
+  // delays are in 1/100 s: round the running time so the total length stays exact
   let minDelay = Infinity;
   for (const f of frames) {
     const a = Math.round((f.startU - g.s) * 100 / st.fps), b = Math.round((f.startU - g.s + f.units) * 100 / st.fps);
     f.delay = Math.max(1, b - a);
     minDelay = Math.min(minDelay, f.delay);
   }
+  let outW = Math.max(1, Math.round(st.w * fit)), outH = Math.max(1, Math.round(st.h * fit));
+  if (st.format === 'mp4') { outW = Math.max(2, Math.round(outW / 2) * 2); outH = Math.max(2, Math.round(outH / 2) * 2); }
+  const fill = st.hasAlpha && (st.format === 'mp4' || st.alphaMode === 'matte');
   return {
-    s: g.s, e: g.e,
-    outW: Math.max(1, Math.round(st.w * fit)),
-    outH: Math.max(1, Math.round(st.h * fit)),
-    frames,
-    keepAlpha: st.hasAlpha && st.alphaMode === 'keep',
-    matte: st.hasAlpha && st.alphaMode === 'matte' ? st.matte : null,
+    s: g.s, e: g.e, outW, outH, frames,
+    keepAlpha: st.hasAlpha && !fill,
+    matte: fill ? st.matte : null,
     minDelay,
     totalCs: frames.reduce((s, f) => s + f.delay, 0),
   };
@@ -103,27 +117,33 @@ async function filesFromDataTransfer(dt) {
 }
 
 function loadFiles(list) {
-  const pngs = list.filter((f) => /\.png$/i.test(f.name) || f.type === 'image/png').sort(naturalSort);
-  if (!pngs.length) { toast('No PNG files found. Drop a PNG sequence or a folder of PNGs.'); return; }
+  const videos = list.filter(isVideoFile);
+  const pngs = list.filter(isPngFile).sort(naturalSort);
+  let kind;
+  if (videos.length) {
+    kind = 'video';
+    if (videos.length > 1 || pngs.length) toast(`Opened ${videos[0].name}. One video at a time.`);
+  } else if (pngs.length) kind = 'png';
+  else { toast('Drop a video (MP4, MOV, WebM) or PNG files.'); return; }
 
   startWorkers();
   st.thumbs.forEach((t) => t?.close?.());
   clearResults();
-  player.clear(); player.playing = true;
+  Object.values(players).forEach((p) => p.clear());
   Object.assign(st, {
-    files: pngs, n: pngs.length, thumbs: new Array(pngs.length), diffs: null, est: null,
-    clips: [], sel: 0, baseName: baseNameOf(pngs[0].name), run: st.run + 1, building: null,
+    kind, files: kind === 'png' ? pngs : [], video: kind === 'video' ? videos[0] : null,
+    name: kind === 'video' ? videos[0].name : `${pngs.length} PNG files`,
+    n: 0, thumbs: [], diffs: null, est: null, clips: [], sel: 0, srcFps: null,
+    baseName: baseNameOf(kind === 'video' ? videos[0].name : pngs[0].name), run: st.run + 1, building: null,
   });
   $('#empty').hidden = true;
   $('#editor').hidden = false;
   $('#loading').hidden = false;
-  $('#loadText').textContent = `Analyzing frames 0 / ${st.n}`;
+  $('#loadText').textContent = kind === 'video' ? 'Reading video…' : `Reading frames 0 / ${pngs.length}`;
   $('#loadBar').style.width = '0%';
-  $('#player').hidden = true;
-  buildStrip();
-  renderClips();
+  $('#strip').innerHTML = ''; $('#clipFrames').innerHTML = ''; stripCells = [];
   st.loadId = nextId();
-  wA.postMessage({ type: 'load', id: st.loadId, files: pngs });
+  wA.postMessage({ type: 'load', id: st.loadId, kind, files: st.files, file: st.video, mbUrl: MB_URL });
 }
 
 /* ---------- Worker messages ---------- */
@@ -133,15 +153,15 @@ function requestEstimate(plan, samples = 6) {
   const id = nextId();
   return new Promise((resolve) => {
     pendingEst = { id, resolve };
-    wA.postMessage({ type: 'estimate', id, plan: planMsg(plan), samples });
+    wA.postMessage({ type: 'estimate', id, fmt: st.format, plan: planMsg(plan), samples });
   });
 }
-function requestEncode(plan, onProgress) {
+function requestEncode(plan, extra, onProgress) {
   cancelEncode();
   const id = nextId();
   return new Promise((resolve) => {
     pendingEnc = { id, resolve, onProgress };
-    wE.postMessage({ type: 'encode', id, plan: planMsg(plan), repeat: 0 });
+    wE.postMessage({ type: 'encode', id, fmt: st.format, plan: planMsg(plan), mbUrl: MB_URL, fps: st.fps, ...extra });
   });
 }
 function cancelEncode() {
@@ -153,47 +173,57 @@ function cancelEncode() {
 function onA(e) {
   const m = e.data;
   if (m.type === 'loadProgress' && m.id === st.loadId) {
+    if (!stripCells.length) buildStrip(m.total);
     st.thumbs[m.index] = m.thumb;
     drawStripThumb(m.index);
-    $('#loadText').textContent = `Analyzing frames ${m.index + 1} / ${m.total}`;
+    $('#loadText').textContent = `Reading frames ${m.index + 1} / ${m.total}`;
     $('#loadBar').style.width = ((m.index + 1) / m.total * 100) + '%';
   } else if (m.type === 'loaded' && m.id === st.loadId) {
-    Object.assign(st, { baseW: m.baseW, baseH: m.baseH, sizes: m.sizes, hasAlpha: m.hasAlpha, diffs: m.diffs, w: m.baseW, h: m.baseH });
-    wE.postMessage({ type: 'init', files: st.files, baseW: st.baseW, baseH: st.baseH });
+    Object.assign(st, { n: m.n, baseW: m.baseW, baseH: m.baseH, sizes: m.sizes, hasAlpha: m.hasAlpha, diffs: m.diffs, w: m.baseW, h: m.baseH });
+    if (st.kind === 'video') { st.srcFps = Math.round(m.fps * 100) / 100; st.fps = st.srcFps; }
+    st.clips = [{ s: 0, e: st.n - 1 }];
+    wE.postMessage({ type: 'init', kind: st.kind, files: st.files, file: st.video, mbUrl: MB_URL });
     $('#loading').hidden = true;
     onLoaded();
   } else if (m.type === 'estimated' && pendingEst && m.id === pendingEst.id) {
     const p = pendingEst; pendingEst = null; p.resolve(m.bytes);
   } else if (m.type === 'error') {
     if (m.kind === 'estimate' && pendingEst?.id === m.id) { const p = pendingEst; pendingEst = null; p.resolve(null); }
-    toast('Error: ' + m.message);
-    if (m.kind === 'load') $('#loading').hidden = true;
+    if (m.kind === 'load') {
+      $('#loading').hidden = true;
+      const fileMode = location.protocol === 'file:' && st.kind === 'video';
+      toast(fileMode ? 'Video needs the online version of this app.' : 'Could not open this file: ' + m.message);
+      if (!st.diffs) { $('#editor').hidden = true; $('#empty').hidden = false; }
+    } else toast('Error: ' + m.message);
   }
 }
 
 function onE(e) {
   const m = e.data;
+  if (m.type === 'error' && m.kind === 'load') { toast('Could not open this file: ' + m.message); return; }
   if (!pendingEnc || m.id !== pendingEnc.id) return;
   if (m.type === 'encodeProgress') pendingEnc.onProgress?.(m.done / m.total);
-  else if (m.type === 'encoded') { const p = pendingEnc; pendingEnc = null; p.resolve(m.buffer); }
-  else if (m.type === 'error') { const p = pendingEnc; pendingEnc = null; p.resolve(null); toast('Could not build GIF: ' + m.message); }
+  else if (m.type === 'encoded') { const p = pendingEnc; pendingEnc = null; p.resolve(m); }
+  else if (m.type === 'error') { const p = pendingEnc; pendingEnc = null; p.resolve(null); toast('Could not export: ' + m.message); }
 }
 
 /* ---------- After loading ---------- */
 function onLoaded() {
-  const mismatched = st.sizes.filter(([w, h]) => w !== st.baseW || h !== st.baseH).length;
-  $('#srcCount').textContent = `${st.n}`;
+  const mismatched = st.sizes.filter((s) => s && (s[0] !== st.baseW || s[1] !== st.baseH)).length;
+  $('#srcName').textContent = st.name;
+  $('#srcName').title = st.name;
   $('#srcDims').textContent = `${st.baseW} × ${st.baseH}`;
   $('#srcAlpha').hidden = !st.hasAlpha;
-  $('#sizeWarn').hidden = !mismatched;
+  $('#srcFpsRow').hidden = st.kind !== 'video';
+  $('#srcFps').textContent = st.srcFps ? `${st.srcFps} fps` : '';
+  $('#sizeWarn').hidden = !mismatched || st.kind !== 'png';
   $('#sizeWarn').textContent = mismatched
     ? `${mismatched} image(s) differ in size from the first frame (${st.baseW} × ${st.baseH}) and were centered.` : '';
-  $('#alphaGroup').hidden = !st.hasAlpha;
   renderControls();
   schedule(0);
 }
 
-/* ---------- Settings change → rebuild GIFs automatically ---------- */
+/* ---------- Settings change → rebuild automatically ---------- */
 let timer = 0;
 function schedule(delay = 350) {
   if (!st.diffs) return;
@@ -201,7 +231,7 @@ function schedule(delay = 350) {
   cancelEncode();
   if (pendingEst) { const p = pendingEst; pendingEst = null; p.resolve(null); }
   st.est = null;
-  st.sel = Math.min(st.sel, segments().length - 1);
+  st.sel = Math.max(0, Math.min(st.sel, st.clips.length - 1));
   renderInfo();
   renderClips();
   showSelected();
@@ -214,37 +244,41 @@ async function rebuild() {
   const run = ++st.run;
   const segs = segments();
   const s = sig();
-  // drop results that no longer match any clip/settings
   const keep = new Set(segs.map((g) => keyOf(g, s)));
-  for (const [k, r] of st.results) if (!keep.has(k)) { URL.revokeObjectURL(r.url); st.results.delete(k); }
+  for (const [k, r] of st.results) if (!keep.has(k)) { dropResult(r); st.results.delete(k); }
 
   const order = [st.sel, ...segs.map((_, i) => i).filter((i) => i !== st.sel)];
   for (const i of order) {
     const g = segs[i], key = keyOf(g, s);
     if (st.results.has(key)) continue;
-    st.building = { i, progress: 0, phase: st.targetOn ? 'fit' : 'encode' };
+    const fmt = st.format;
+    st.building = { i, progress: 0, phase: fmt === 'gif' && st.targetOn ? 'fit' : 'encode' };
     renderBusy(); renderSize();
 
-    let fit = 1, failed = false;
-    if (st.targetOn) {
+    let fit = 1, failed = false, extra = {};
+    if (fmt === 'gif' && st.targetOn) {
       const r = await fitToTarget(run, g);
       if (r == null || run !== st.run) return;
       fit = r.fit; failed = r.failed;
     }
     const plan = buildPlan(g, fit);
-    if (i === st.sel && segs.length === 1 && !st.targetOn) {
+    if (fmt === 'mp4' && st.targetOn) {
+      // bitrate that fills the target, with headroom for the container
+      const secs = plan.totalCs / 100;
+      extra.bitrate = Math.max(50_000, Math.floor((st.targetMB * 1024 * 1024 * 8 * 0.92) / secs));
+    }
+    if (i === st.sel && segs.length === 1 && fmt !== 'mp4' && !(fmt === 'gif' && st.targetOn)) {
       requestEstimate(plan).then((b) => { if (b != null && run === st.run && !st.results.has(key)) { st.est = b; renderSize(); } });
     }
     st.building = { i, progress: 0, phase: 'encode' };
     renderBusy();
-    const buf = await requestEncode(plan, (p) => {
+    const res = await requestEncode(plan, extra, (p) => {
       if (run !== st.run) return;
       st.building.progress = p;
       renderBusy();
     });
-    if (!buf || run !== st.run) return;
-    const blob = new Blob([buf], { type: 'image/gif' });
-    st.results.set(key, { blob, url: URL.createObjectURL(blob), bytes: blob.size, buffer: buf, plan, failed });
+    if (!res || run !== st.run) return;
+    st.results.set(key, makeResult(res, plan, failed));
     st.building = null;
     if (i === st.sel) showSelected();
     renderClips(); renderInfo(); renderSize(); renderBusy();
@@ -253,15 +287,24 @@ async function rebuild() {
   renderBusy(); renderSize();
 }
 
+function makeResult(res, plan, failed) {
+  if (res.fmt === 'png') {
+    const bytes = res.frames.reduce((s, f) => s + f.size, 0);
+    return { fmt: 'png', frames: res.frames, bytes, plan, failed };
+  }
+  const blob = new Blob([res.buffer], { type: res.fmt === 'gif' ? 'image/gif' : 'video/mp4' });
+  return { fmt: res.fmt, blob, url: URL.createObjectURL(blob), bytes: blob.size, buffer: res.fmt === 'gif' ? res.buffer : null, plan, failed };
+}
+function dropResult(r) { if (r.url) URL.revokeObjectURL(r.url); }
+
 /* Find the scale factor that keeps one GIF under the target. Leaves 5% headroom for estimate error. */
 async function fitToTarget(run, g) {
   const safe = st.targetMB * 1024 * 1024 * 0.95;
   const minFit = Math.min(1, 16 / Math.min(st.w, st.h));
-  let f = 1, lo = null, hi = null, lastBytes = null;
+  let f = 1, lo = null, hi = null;
   for (let it = 0; it < 7; it++) {
     const bytes = await requestEstimate(buildPlan(g, f), 5);
     if (bytes == null || run !== st.run) return null;
-    lastBytes = bytes;
     if (bytes <= safe) {
       if (lo == null || f > lo) lo = f;
       if (f >= 1 || bytes > safe * 0.9) break;
@@ -274,48 +317,57 @@ async function fitToTarget(run, g) {
     if (hi != null && lo != null && hi - lo < 0.01) break;
     f = next;
   }
-  if (lo != null) return { fit: lo, failed: false };
-  return { fit: minFit, failed: true, bytes: lastBytes };
+  return lo != null ? { fit: lo, failed: false } : { fit: minFit, failed: true };
 }
 
 /* ---------- Rendering ---------- */
 function renderControls() {
+  const f = st.format;
+  $$('#fmtSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === f));
+  $('#fpsCard').hidden = f === 'png';
   $('#fpsInput').value = st.fps;
   $('#wInput').value = st.w;
   $('#hInput').value = st.h;
   $('#lockBtn').classList.toggle('on', st.lock);
   $('#lockBtn').setAttribute('aria-pressed', st.lock);
   $('#lockBtn').title = st.lock ? 'Aspect ratio locked' : 'Aspect ratio unlocked';
+  $('#dedupeCard').hidden = f !== 'gif';
   $('#dedupe').checked = st.dedupe;
+  // transparency: MP4 has no alpha, so the background is always filled
+  $('#alphaGroup').hidden = !st.hasAlpha;
+  $('#alphaTitle').textContent = f === 'mp4' ? 'Background' : 'Transparency';
+  $('#alphaSeg').hidden = f === 'mp4';
   $$('#alphaSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.alphaMode));
-  $('#matteRow').hidden = st.alphaMode !== 'matte';
+  $('#matteRow').hidden = !(f === 'mp4' || st.alphaMode === 'matte');
+  $('#matteSw').style.background = st.matte;
+  $('#matteHex').textContent = st.matte;
+  $('#targetCard').hidden = f === 'png';
   $('#targetOn').checked = st.targetOn;
   $('#targetInput').disabled = !st.targetOn;
   $('#targetRow').classList.toggle('disabled', !st.targetOn);
 }
 
 function renderInfo() {
-  const segs = segments();
-  const g = segs[st.sel];
+  const g = st.clips[st.sel];
+  if (!g) return;
   const p = buildPlan(g);
-  $('#clipCountRow').hidden = !st.clips.length;
-  $('#clipCount').textContent = segs.length;
+  $('#clipCountRow').hidden = st.clips.length < 2;
+  $('#clipCount').textContent = st.clips.length;
   $('#outFrames').textContent = p.frames.length;
   $('#outSecs').textContent = (p.totalCs / 100).toFixed(2) + 's';
-  $('#delayWarn').hidden = p.minDelay >= 2;
+  $('#delayWarn').hidden = st.format !== 'gif' || p.minDelay >= 2;
 
-  // target fit note (selected GIF)
   const r = resultFor(st.sel);
-  const fitted = st.targetOn && r && (r.plan.outW !== st.w || r.plan.outH !== st.h);
+  const fitted = st.format === 'gif' && st.targetOn && r && (r.plan.outW !== st.w || r.plan.outH !== st.h);
   $('#fitNote').hidden = !st.targetOn || !r || !(fitted || r.failed);
   if (r) {
     $('#fitNote').textContent = r.failed ? 'Still over the target at the smallest size.' : `Resized to ${r.plan.outW} × ${r.plan.outH}`;
-    $('#fitNote').classList.toggle('bad', r.failed);
+    $('#fitNote').classList.toggle('bad', !!r.failed);
   }
 
   // strip: dim merged frames and frames outside every clip
   const used = new Map();
-  for (const sg of segs) for (const f of buildPlan(sg).frames) used.set(f.src, f.units);
+  for (const sg of st.clips) for (const fr of buildPlan(sg).frames) used.set(fr.src, fr.units);
   stripCells.forEach((c, i) => {
     const u = used.get(i);
     const inside = segOfFrame(i) >= 0;
@@ -327,147 +379,202 @@ function renderInfo() {
 
 function renderSize() {
   const segs = segments();
+  if (!segs.length) return;
   const results = segs.map((_, i) => resultFor(i));
   const done = results.filter(Boolean).length;
   const all = done === segs.length;
   const total = results.reduce((s, r) => s + (r ? r.bytes : 0), 0);
   const multi = segs.length > 1;
-  const target = st.targetMB * 1024 * 1024;
+  const F = FMT[st.format];
   let label, value;
-  if (all) {
-    label = multi ? `Total size · ${segs.length} GIFs` : 'File size';
-    value = fmtBytes(total);
-  } else if (multi) {
-    label = `Building ${Math.min(done + 1, segs.length)} of ${segs.length} GIFs`;
-    value = done ? fmtBytes(total) + ' +' : 'Calculating…';
-  } else {
-    label = 'Estimated size';
-    value = st.est != null ? '~ ' + fmtBytes(st.est) : 'Calculating…';
-  }
+  if (all) { label = multi ? `Total size · ${segs.length} clips` : 'File size'; value = fmtBytes(total); }
+  else if (multi) { label = `Exporting ${Math.min(done + 1, segs.length)} of ${segs.length}`; value = done ? fmtBytes(total) + ' +' : 'Calculating…'; }
+  else { label = 'Estimated size'; value = st.est != null ? '~ ' + fmtBytes(st.est) : 'Calculating…'; }
   $('#sizeLabel').textContent = label;
   $('#sizeVal').textContent = value;
-  const over = st.targetOn && results.some((r) => r && r.bytes > target);
+  const over = st.format !== 'png' && st.targetOn && results.some((r) => r && r.bytes > st.targetMB * 1024 * 1024);
   $('#sizeCard').classList.toggle('over', over);
   $('#dlBtn').disabled = !all;
-  $('#dlBtn').textContent = multi ? `Download ${segs.length} GIFs` : 'Download GIF';
+  $('#dlBtn').textContent = st.format === 'png' ? 'Download PNGs (ZIP)' : multi ? `Download ${segs.length} ${F.many}` : `Download ${F.one}`;
 }
 
 function renderBusy() {
   const ready = !!resultFor(st.sel);
   const b = st.building;
-  const busy = !ready;
-  $('#busy').hidden = !busy;
-  if (busy) {
+  $('#busy').hidden = ready;
+  if (!ready) {
+    const verb = { gif: 'Building GIF', mp4: 'Encoding MP4', png: 'Rendering PNGs' }[st.format];
     if (b && b.i === st.sel) {
-      $('#busyText').textContent = b.phase === 'fit' ? 'Fitting to target size' : `Building GIF ${Math.round(b.progress * 100)}%`;
+      $('#busyText').textContent = b.phase === 'fit' ? 'Fitting to target size' : `${verb} ${Math.round(b.progress * 100)}%`;
       $('#busyBar').style.width = Math.round(b.progress * 100) + '%';
-    } else {
-      $('#busyText').textContent = 'Building GIF';
-      $('#busyBar').style.width = '0%';
-    }
+    } else { $('#busyText').textContent = verb; $('#busyBar').style.width = '0%'; }
   }
-  $('#player').classList.toggle('dim', busy);
-  $('#gifEmpty').hidden = !$('#player').hidden || busy;
+  const el = activeEl();
+  el.classList.toggle('dim', !ready);
+  $('#gifEmpty').hidden = !!shownKey || !ready;
   renderPlayState();
 }
 
-/* Show the selected GIF in the player (or keep the old one dimmed until it's ready) */
-let shownKey = null, pendingSeekSrc = null;
-function showSelected() {
-  const segs = segments();
-  const g = segs[st.sel];
-  const r = resultFor(st.sel);
-  // clip badge
-  $('#clipBadge').hidden = segs.length < 2;
-  $('#clipBadge').textContent = `Clip ${st.sel + 1} · ${g.s + 1}–${g.e + 1}`;
-  if (r) {
-    const key = keyOf(g);
-    if (key !== shownKey) {
-      let keep = null;
-      if (pendingSeekSrc != null) { player.pause(); keep = outputFrameFor(r.plan, pendingSeekSrc); pendingSeekSrc = null; }
-      else if (!player.playing && player.gif && shownPlan) {
-        const src = shownPlan.frames[player.idx]?.src;
-        if (src != null && src >= g.s && src <= g.e) keep = outputFrameFor(r.plan, src);
-        else player.play(); // paused frame is outside this clip: start playing it
-      }
-      shownPlan = r.plan;
-      shownKey = key;
-      $('#player').hidden = false;
-      player.load(r.buffer, keep);
-      fitCanvas();
-    } else if (pendingSeekSrc != null) {
-      player.seek(outputFrameFor(r.plan, pendingSeekSrc)); pendingSeekSrc = null;
-    }
-  }
-  renderBusy();
-}
-let shownPlan = null;
-
-function clearResults() {
-  for (const r of st.results.values()) URL.revokeObjectURL(r.url);
-  st.results.clear();
-  shownKey = null; shownPlan = null;
-}
-
-async function download() {
-  const segs = segments();
-  const multi = st.clips.length > 0;
-  for (let i = 0; i < segs.length; i++) {
-    const r = resultFor(i);
-    if (!r) return;
-    const g = segs[i];
-    const a = document.createElement('a');
-    a.href = r.url;
-    a.download = multi ? `${st.baseName}_${padNum(g.s + 1)}-${padNum(g.e + 1)}.gif` : `${st.baseName}.gif`;
-    a.click();
-    if (i < segs.length - 1) await new Promise((res) => setTimeout(res, 300));
-  }
-}
-
-/* ---------- Player ---------- */
-const player = new GifPlayer($('#player'), (i) => {
+/* ---------- Preview players ---------- */
+const onPlayerFrame = (i) => {
   const src = shownPlan?.frames[i]?.src;
   if (nowCell) nowCell.classList.remove('now');
   nowCell = src != null ? stripCells[src] : null;
   if (nowCell) {
     nowCell.classList.add('now');
-    if (!player.playing) nowCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (!player().playing) nowCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-});
-let nowCell = null;
+};
+const players = {
+  gif: new GifPlayer($('#player'), onPlayerFrame),
+  png: new PngSeqPlayer($('#player'), onPlayerFrame),
+  mp4: new VideoPlayer($('#vplayer'), onPlayerFrame),
+};
+const player = () => players[shownFmt || st.format];
+const activeEl = () => (st.format === 'mp4' ? $('#vplayer') : $('#player'));
+let nowCell = null, shownKey = null, shownPlan = null, shownFmt = null, pendingSeekSrc = null, wantPlaying = true;
 
-// Fit the canvas inside the preview box without cropping (never upscale)
-function fitCanvas() {
-  const cv = $('#player'), stage = $('#stage');
-  const w = cv.width, h = cv.height;
+function showSelected() {
+  const g = st.clips[st.sel];
+  if (!g) return;
+  $('#clipBadge').hidden = st.clips.length < 2;
+  $('#clipBadge').textContent = `Clip ${st.sel + 1} · ${g.s + 1}–${g.e + 1}`;
+  const r = resultFor(st.sel);
+  if (r) {
+    const key = keyOf(g);
+    if (key !== shownKey) {
+      const prev = shownFmt ? players[shownFmt] : null;
+      let keep = null;
+      if (pendingSeekSrc != null) { wantPlaying = false; keep = outputFrameFor(r.plan, pendingSeekSrc); pendingSeekSrc = null; }
+      else if (prev && !prev.playing && shownPlan) {
+        const src = shownPlan.frames[prev.idx]?.src;
+        if (src != null && src >= g.s && src <= g.e) { wantPlaying = false; keep = outputFrameFor(r.plan, src); }
+        else wantPlaying = true;
+      }
+      if (prev && shownFmt !== r.fmt) prev.clear();
+      shownPlan = r.plan; shownKey = key; shownFmt = r.fmt;
+      $('#player').hidden = r.fmt === 'mp4';
+      $('#vplayer').hidden = r.fmt !== 'mp4';
+      const p = players[r.fmt];
+      p.playing = wantPlaying;
+      if (r.fmt === 'gif') p.load(r.buffer, keep);
+      else if (r.fmt === 'png') p.load({ frames: r.frames.map((f) => f.blob), delays: r.plan.frames.map((f) => f.delay), w: r.plan.outW, h: r.plan.outH }, keep);
+      else {
+        let t = 0;
+        const starts = r.plan.frames.map((f) => { const s0 = t; t += f.delay / 100; return s0; });
+        p.load({ url: r.url, starts }, keep);
+      }
+      fitPreview();
+    } else if (pendingSeekSrc != null) {
+      player().seek(outputFrameFor(r.plan, pendingSeekSrc)); pendingSeekSrc = null;
+    }
+  }
+  renderBusy();
+}
+
+function clearResults() {
+  for (const r of st.results.values()) dropResult(r);
+  st.results.clear();
+  shownKey = null; shownPlan = null; shownFmt = null; wantPlaying = true;
+  $('#player').hidden = true; $('#vplayer').hidden = true;
+}
+
+// Fit the preview inside its box without cropping (never upscale)
+function fitPreview() {
+  const stage = $('#stage');
+  const el = shownFmt === 'mp4' ? $('#vplayer') : $('#player');
+  const w = shownFmt === 'mp4' ? shownPlan?.outW : el.width, h = shownFmt === 'mp4' ? shownPlan?.outH : el.height;
+  if (!w || !h || w < 2) return;
   $('#viewer').style.setProperty('--ar', `${w} / ${h}`);
   const bw = stage.clientWidth, bh = stage.clientHeight;
-  if (!bw || !bh || w < 2) return;
+  if (!bw || !bh) return;
   const k = Math.min(bw / w, bh / h, 1);
-  cv.style.width = Math.floor(w * k) + 'px';
-  cv.style.height = Math.floor(h * k) + 'px';
+  el.style.width = Math.floor(w * k) + 'px';
+  el.style.height = Math.floor(h * k) + 'px';
 }
-new ResizeObserver(fitCanvas).observe($('#stage'));
+new ResizeObserver(fitPreview).observe($('#stage'));
 
 function renderPlayState() {
-  $('#playIcon').hidden = $('#player').hidden || player.playing || !$('#busy').hidden;
+  const p = shownFmt ? players[shownFmt] : null;
+  $('#playIcon').hidden = !p || p.playing || !$('#busy').hidden;
 }
 $('#viewer').onclick = () => {
-  if ($('#player').hidden || !$('#busy').hidden) return;
-  player.toggle();
+  if (!shownFmt || !$('#busy').hidden) return;
+  wantPlaying = player().toggle();
   renderPlayState();
 };
 
-/* ---------- Frame strip ---------- */
+/* ---------- Download ---------- */
+async function download() {
+  const segs = segments();
+  const results = segs.map((_, i) => resultFor(i));
+  if (results.some((r) => !r)) return;
+  const range = (g) => `${padNum(g.s + 1)}-${padNum(g.e + 1)}`;
+  const named = !isFullClip();
+  if (st.format === 'png') {
+    const pad4 = (k) => String(k).padStart(Math.max(4, String(st.n).length), '0');
+    const entries = [];
+    segs.forEach((g, i) => {
+      const dir = segs.length > 1 ? `${st.baseName}_${range(g)}/` : '';
+      for (const f of results[i].frames) entries.push({ name: `${dir}${st.baseName}_${pad4(f.src + 1)}.png`, blob: f.blob, crc: f.crc, size: f.size });
+    });
+    const zip = makeZip(entries);
+    const name = segs.length === 1 && named ? `${st.baseName}_${range(segs[0])}.zip` : `${st.baseName}.zip`;
+    save(URL.createObjectURL(zip), name, true);
+    return;
+  }
+  for (let i = 0; i < segs.length; i++) {
+    save(results[i].url, named ? `${st.baseName}_${range(segs[i])}.${FMT[st.format].ext}` : `${st.baseName}.${FMT[st.format].ext}`);
+    if (i < segs.length - 1) await new Promise((res) => setTimeout(res, 300));
+  }
+}
+function save(url, name, revoke) {
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  if (revoke) setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/* Minimal ZIP writer (stored, no compression: PNGs are already compressed) */
+function makeZip(entries) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const parts = [], central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nb = enc.encode(e.name);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, e.crc, true);
+    lh.setUint32(18, e.size, true); lh.setUint32(22, e.size, true); lh.setUint16(26, nb.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh, nb, e.blob);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(10, 0, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, e.crc, true);
+    ch.setUint32(20, e.size, true); ch.setUint32(24, e.size, true); ch.setUint16(28, nb.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(ch, nb);
+    offset += 30 + nb.length + e.size;
+  }
+  const cdSize = central.reduce((s, p) => s + p.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+
+/* ---------- Frame strip with iPhone-style trim frames ---------- */
 let stripCells = [];
-function buildStrip() {
+function buildStrip(n) {
   const strip = $('#strip');
   strip.innerHTML = '';
   nowCell = null;
-  stripCells = st.files.map((f, i) => {
+  const names = st.kind === 'png' ? st.files.map((f) => f.name) : null;
+  stripCells = Array.from({ length: n }, (_, i) => {
     const cell = document.createElement('button');
     cell.className = 'cell';
-    cell.title = f.name;
+    cell.title = names ? names[i] : `Frame ${i + 1}`;
     cell.innerHTML = `<canvas width="1" height="1"></canvas><span class="num">${i + 1}</span><span class="dur"></span>`;
     cell.onclick = () => seekToFrame(i);
     strip.appendChild(cell);
@@ -485,74 +592,42 @@ function seekToFrame(i) {
   if (k < 0) return;
   if (k !== st.sel) { selectClip(k, i); return; }
   const r = resultFor(k);
-  if (!r) { pendingSeekSrc = i; return; }
-  if (shownKey !== keyOf(segments()[k])) { pendingSeekSrc = i; showSelected(); return; }
-  player.seek(outputFrameFor(r.plan, i));
+  if (!r || shownKey !== keyOf(st.clips[k])) { pendingSeekSrc = i; showSelected(); return; }
+  wantPlaying = false;
+  player().seek(outputFrameFor(r.plan, i));
   renderPlayState();
 }
 
-/* ---------- Clips ---------- */
 function selectClip(k, seekSrc = null) {
   st.sel = k;
   if (seekSrc != null) pendingSeekSrc = seekSrc;
   renderClips(); renderInfo(); showSelected();
-  // if this clip isn't built yet, rebuild starting with it
   if (!resultFor(k)) schedule(0);
 }
-
 function setClips(clips, sel = st.sel) {
-  st.clips = clips;
-  st.sel = Math.max(0, Math.min(sel, segments().length - 1));
+  st.clips = clips.length ? clips : [{ s: 0, e: st.n - 1 }];
+  st.sel = Math.max(0, Math.min(sel, st.clips.length - 1));
   schedule();
 }
 
-// Split where the animation stops: a run of identical frames ends a clip
-function autoSplit() {
-  const minPause = Math.max(3, Math.round(st.fps * 0.2));
-  const cuts = [];
-  let a = 0;
-  for (let i = 1; i <= st.n; i++) {
-    const same = i < st.n && st.diffs[i] === 0;
-    if (same) continue;
-    // frames a..i-1 are identical
-    const len = i - a;
-    if (len >= minPause && a > 0 && i < st.n) cuts.push(i - 1);
-    a = i;
-  }
-  if (!cuts.length) { toast('No pauses found in this sequence.'); return; }
-  const clips = [];
-  let s = 0;
-  for (const c of cuts) { clips.push({ s, e: c }); s = c + 1; }
-  clips.push({ s, e: st.n - 1 });
-  setClips(clips, 0);
-  toast(`Split into ${clips.length} clips.`);
+// Split the selected clip at the frame shown in the preview (or in the middle)
+function currentSrc() {
+  const p = shownFmt ? players[shownFmt] : null;
+  return p && shownPlan ? shownPlan.frames[p.idx]?.src : null;
 }
-
-function addClip() {
-  if (!st.clips.length) { setClips([{ s: 0, e: st.n - 1 }], 0); return; }
-  const cs = [...st.clips];
-  // fill the first gap, if any
-  let prevEnd = -1;
-  for (let i = 0; i <= cs.length; i++) {
-    const start = i < cs.length ? cs[i].s : st.n;
-    if (start - prevEnd > 1) { cs.splice(i, 0, { s: prevEnd + 1, e: start - 1 }); setClips(cs, i); return; }
-    if (i < cs.length) prevEnd = cs[i].e;
-  }
-  // otherwise split the selected clip (or the longest) in half
-  let k = st.sel;
-  if (cs[k].e - cs[k].s < 1) k = cs.reduce((m, c, i) => (c.e - c.s > cs[m].e - cs[m].s ? i : m), 0);
-  const c = cs[k];
-  if (c.e - c.s < 1) { toast('Every clip is a single frame.'); return; }
-  const mid = Math.floor((c.s + c.e) / 2);
-  cs.splice(k, 1, { s: c.s, e: mid }, { s: mid + 1, e: c.e });
+function splitClip() {
+  const cs = st.clips.map((c) => ({ ...c }));
+  const k = st.sel, c = cs[k];
+  if (c.e - c.s < 1) { toast('This clip is a single frame.'); return; }
+  let at = currentSrc();
+  if (at == null || at <= c.s || at > c.e) at = Math.floor((c.s + c.e + 1) / 2);
+  cs.splice(k, 1, { s: c.s, e: at - 1 }, { s: at, e: c.e });
+  pendingSeekSrc = at;
   setClips(cs, k + 1);
 }
-
 function removeClip(k) {
-  const cs = st.clips.filter((_, i) => i !== k);
-  setClips(cs, Math.min(st.sel, cs.length - 1));
+  setClips(st.clips.filter((_, i) => i !== k), Math.min(st.sel, st.clips.length - 2));
 }
-
 // Clamp one clip's edges between its neighbours
 function updateClip(k, s, e) {
   const cs = st.clips;
@@ -564,79 +639,92 @@ function updateClip(k, s, e) {
 }
 
 function renderClips() {
-  const has = st.clips.length > 0;
-  $('#clearClips').hidden = !has;
+  $('#resetClips').hidden = isFullClip();
   const list = $('#clipList');
-  // keep focus on an input that is being edited
   const active = document.activeElement;
-  if (active && list.contains(active) && active.tagName === 'INPUT') { renderTrack(); return; }
-  list.innerHTML = '';
-  st.clips.forEach((c, k) => {
-    const r = resultFor(k);
-    const row = document.createElement('div');
-    row.className = 'clip' + (k === st.sel ? ' sel' : '');
-    row.innerHTML = `
-      <div class="name">Clip ${k + 1}<small>${r ? fmtBytes(r.bytes) : '…'}</small></div>
-      <div class="range">
-        <input type="number" min="1" max="${st.n}" value="${c.s + 1}" aria-label="Clip ${k + 1} start frame">
-        <span>–</span>
-        <input type="number" min="1" max="${st.n}" value="${c.e + 1}" aria-label="Clip ${k + 1} end frame">
-      </div>
-      <button class="del" aria-label="Remove clip ${k + 1}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
-    const [si, ei] = row.querySelectorAll('input');
-    const apply = () => {
-      updateClip(k, clampInt(si.value, 1, st.n, c.s + 1) - 1, clampInt(ei.value, 1, st.n, c.e + 1) - 1);
-      si.value = st.clips[k].s + 1; ei.value = st.clips[k].e + 1;
-      st.sel = k;
-      schedule();
-    };
-    si.onchange = apply; ei.onchange = apply;
-    [si, ei].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); }));
-    row.querySelector('.del').onclick = (e) => { e.stopPropagation(); removeClip(k); };
-    row.onclick = (e) => { if (e.target.tagName !== 'INPUT' && k !== st.sel) selectClip(k); };
-    list.appendChild(row);
-  });
-  renderTrack();
+  if (!(active && list.contains(active) && active.tagName === 'INPUT')) {
+    list.innerHTML = '';
+    st.clips.forEach((c, k) => {
+      const r = resultFor(k);
+      const row = document.createElement('div');
+      row.className = 'clip' + (k === st.sel ? ' sel' : '');
+      row.innerHTML = `
+        <div class="name">Clip ${k + 1}<small>${r ? fmtBytes(r.bytes) : '…'}</small></div>
+        <div class="range">
+          <input type="number" min="1" max="${st.n}" value="${c.s + 1}" aria-label="Clip ${k + 1} first frame">
+          <span>–</span>
+          <input type="number" min="1" max="${st.n}" value="${c.e + 1}" aria-label="Clip ${k + 1} last frame">
+        </div>
+        <button class="del" aria-label="Remove clip ${k + 1}"${st.clips.length < 2 ? ' hidden' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+      const [si, ei] = row.querySelectorAll('input');
+      const apply = () => {
+        updateClip(k, clampInt(si.value, 1, st.n, c.s + 1) - 1, clampInt(ei.value, 1, st.n, c.e + 1) - 1);
+        si.value = st.clips[k].s + 1; ei.value = st.clips[k].e + 1;
+        st.sel = k;
+        schedule();
+      };
+      si.onchange = apply; ei.onchange = apply;
+      [si, ei].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); }));
+      row.querySelector('.del').onclick = (e) => { e.stopPropagation(); removeClip(k); };
+      row.onclick = (e) => { if (e.target.tagName !== 'INPUT' && k !== st.sel) selectClip(k); };
+      list.appendChild(row);
+    });
+  }
+  renderFrames();
 }
 
-/* Clip bands under the frame strip, with drag handles on both ends */
-function cellEdges() {
-  return stripCells.map((c) => [c.offsetLeft, c.offsetLeft + c.offsetWidth]);
+const cellEdges = () => stripCells.map((c) => [c.offsetLeft, c.offsetLeft + c.offsetWidth]);
+const CHEV_L = '<svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3 2 8l5 5"/></svg>';
+const CHEV_R = '<svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 5 5-5 5"/></svg>';
+function placeFrame(fr, c, edges) {
+  const left = edges[c.s][0], width = edges[c.e][1] - left;
+  fr.style.left = left + 'px';
+  fr.style.width = width + 'px';
+  fr.querySelector('.tag').textContent = `${c.s + 1}–${c.e + 1}`;
+  pinTag(fr);
 }
-function renderTrack() {
-  const track = $('#track');
-  track.innerHTML = '';
-  if (!st.clips.length || !stripCells.length) return;
+// keep each clip's label inside the visible part of its frame while the strip scrolls
+function pinTag(fr) {
+  const tag = fr.querySelector('.tag');
+  const sc = $('#stripScroll');
+  const left = fr.offsetLeft, width = fr.offsetWidth, tw = tag.offsetWidth;
+  const x = Math.max(0, Math.min(sc.scrollLeft - left + 6, width - tw));
+  tag.style.transform = `translateX(${x}px)`;
+}
+$('#stripScroll').addEventListener('scroll', () => $$('#clipFrames .clipframe').forEach(pinTag), { passive: true });
+function renderFrames() {
+  const box = $('#clipFrames');
+  box.innerHTML = '';
+  if (!stripCells.length || !st.clips.length) return;
   const edges = cellEdges();
   st.clips.forEach((c, k) => {
-    const band = document.createElement('div');
-    band.className = 'band' + (k === st.sel ? ' sel' : '');
-    band.style.left = edges[c.s][0] + 'px';
-    band.style.width = (edges[c.e][1] - edges[c.s][0]) + 'px';
-    band.innerHTML = `<span class="handle l"></span><span class="lbl">${c.s + 1}–${c.e + 1}</span><span class="lbl end">${c.s + 1}–${c.e + 1}</span><span class="handle r"></span>`;
-    band.classList.toggle('wide', edges[c.e][1] - edges[c.s][0] > 260);
-    band.onclick = () => { if (k !== st.sel) selectClip(k); };
-    band.querySelectorAll('.handle').forEach((hd) => hd.addEventListener('pointerdown', (e) => startDrag(e, k, hd.classList.contains('l') ? 'l' : 'r')));
-    track.appendChild(band);
+    const fr = document.createElement('div');
+    fr.className = 'clipframe' + (k === st.sel ? ' sel' : '');
+    fr.innerHTML = `<span class="tag"></span><span class="handle l">${CHEV_L}</span><span class="handle r">${CHEV_R}</span>`;
+    box.appendChild(fr);
+    placeFrame(fr, c, edges);
+    fr.querySelector('.tag').onclick = () => k !== st.sel && selectClip(k);
+    fr.querySelectorAll('.handle').forEach((hd) => hd.addEventListener('pointerdown', (e) => startDrag(e, k, hd.classList.contains('l') ? 'l' : 'r')));
   });
 }
 
 let drag = null;
 function startDrag(e, k, side) {
   e.preventDefault(); e.stopPropagation();
-  drag = { k, side, edges: cellEdges(), orig: { ...st.clips[k] }, pointer: e.pointerId, x: e.clientX };
-  e.target.setPointerCapture(e.pointerId);
-  e.target.addEventListener('pointermove', onDrag);
-  e.target.addEventListener('pointerup', endDrag);
-  e.target.addEventListener('pointercancel', endDrag);
-  if (st.sel !== k) { st.sel = k; renderInfo(); showSelected(); }
+  const el = e.currentTarget;
+  drag = { k, side, el, edges: cellEdges(), orig: { ...st.clips[k] }, x: e.clientX };
+  el.setPointerCapture(e.pointerId);
+  el.addEventListener('pointermove', onDrag);
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+  if (st.sel !== k) {
+    st.sel = k;
+    $$('#clipFrames .clipframe').forEach((f, i) => f.classList.toggle('sel', i === k));
+    renderInfo(); showSelected();
+  }
   dragScroll();
 }
-function onDrag(e) {
-  if (!drag) return;
-  drag.x = e.clientX;
-  applyDrag();
-}
+function onDrag(e) { if (drag) { drag.x = e.clientX; applyDrag(); } }
 function applyDrag() {
   const inner = $('#stripInner').getBoundingClientRect();
   const x = drag.x - inner.left;
@@ -646,19 +734,12 @@ function applyDrag() {
     const d = Math.abs((drag.side === 'l' ? l : r) - x);
     if (d < bestD) { bestD = d; best = i; }
   });
-  if (drag.side === 'l') updateClip(drag.k, best, c.e);
-  else updateClip(drag.k, c.s, Math.max(best, c.s));
-  // live update of the band and the list numbers
+  if (drag.side === 'l') updateClip(drag.k, best, c.e); else updateClip(drag.k, c.s, Math.max(best, c.s));
   const nc = st.clips[drag.k];
-  const band = $('#track').children[drag.k];
-  band.style.left = drag.edges[nc.s][0] + 'px';
-  band.style.width = (drag.edges[nc.e][1] - drag.edges[nc.s][0]) + 'px';
-  band.querySelectorAll('.lbl').forEach((l) => (l.textContent = `${nc.s + 1}–${nc.e + 1}`));
-  band.classList.toggle('wide', drag.edges[nc.e][1] - drag.edges[nc.s][0] > 260);
+  placeFrame($('#clipFrames').children[drag.k], nc, drag.edges);
   const inputs = $('#clipList').children[drag.k]?.querySelectorAll('input');
   if (inputs) { inputs[0].value = nc.s + 1; inputs[1].value = nc.e + 1; }
 }
-// auto-scroll the strip while dragging near its edges
 function dragScroll() {
   if (!drag) return;
   const sc = $('#stripScroll'), r = sc.getBoundingClientRect();
@@ -669,11 +750,12 @@ function dragScroll() {
   if (dx) { sc.scrollLeft += dx; applyDrag(); }
   requestAnimationFrame(dragScroll);
 }
-function endDrag(e) {
+function endDrag() {
   if (!drag) return;
-  e.target.removeEventListener('pointermove', onDrag);
-  e.target.removeEventListener('pointerup', endDrag);
-  e.target.removeEventListener('pointercancel', endDrag);
+  const { el } = drag;
+  el.removeEventListener('pointermove', onDrag);
+  el.removeEventListener('pointerup', endDrag);
+  el.removeEventListener('pointercancel', endDrag);
   const changed = drag.orig.s !== st.clips[drag.k].s || drag.orig.e !== st.clips[drag.k].e;
   drag = null;
   if (changed) schedule(); else renderClips();
@@ -687,6 +769,17 @@ function toast(msg) {
   toastTimer = setTimeout(() => (el.hidden = true), 3500);
 }
 
+/* ---------- Color picker ---------- */
+const picker = new ColorPicker($('#cp'), {
+  value: st.matte,
+  onChange: (hex) => { st.matte = hex; $('#matteSw').style.background = hex; $('#matteHex').textContent = hex; schedule(); },
+});
+$('#matteBtn').onclick = () => {
+  const open = $('#cp').hidden;
+  $('#cp').hidden = !open;
+  $('#matteBtn').setAttribute('aria-expanded', open);
+};
+
 /* ---------- Events ---------- */
 let dragDepth = 0;
 addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('#dropOverlay').hidden = false; });
@@ -696,14 +789,15 @@ addEventListener('drop', async (e) => {
   e.preventDefault(); dragDepth = 0; $('#dropOverlay').hidden = true;
   loadFiles(await filesFromDataTransfer(e.dataTransfer));
 });
-addEventListener('resize', () => { if (!drag) renderTrack(); });
+addEventListener('resize', () => { if (!drag) renderFrames(); });
 $('#pickFiles').onchange = (e) => { loadFiles([...e.target.files]); e.target.value = ''; };
 $('#pickFolder').onchange = (e) => { loadFiles([...e.target.files]); e.target.value = ''; };
 $$('[data-pick]').forEach((b) => (b.onclick = () => $('#' + b.dataset.pick).click()));
 
 const MAXD = 8192;
 const changed = () => { renderControls(); schedule(); };
-$('#fpsInput').onchange = (e) => { st.fps = clampInt(e.target.value, 1, 100, 30); changed(); };
+$$('#fmtSeg button').forEach((b) => (b.onclick = () => { if (st.format !== b.dataset.v) { st.format = b.dataset.v; changed(); } }));
+$('#fpsInput').onchange = (e) => { st.fps = Math.round(clampNum(e.target.value, 1, 120, 30) * 100) / 100; changed(); };
 $('#wInput').onchange = (e) => {
   st.w = clampInt(e.target.value, 1, MAXD, st.w);
   if (st.lock) st.h = Math.max(1, Math.round(st.w * st.baseH / st.baseW));
@@ -716,7 +810,7 @@ $('#hInput').onchange = (e) => {
 };
 $('#lockBtn').onclick = () => {
   st.lock = !st.lock;
-  if (st.lock) { // snap back to the original aspect ratio when locking
+  if (st.lock) {
     const nh = Math.max(1, Math.round(st.w * st.baseH / st.baseW));
     if (nh !== st.h) { st.h = nh; changed(); return; }
   }
@@ -724,14 +818,11 @@ $('#lockBtn').onclick = () => {
 };
 $('#dedupe').onchange = (e) => { st.dedupe = e.target.checked; changed(); };
 $$('#alphaSeg button').forEach((b) => (b.onclick = () => { st.alphaMode = b.dataset.v; changed(); }));
-$('#matteColor').oninput = (e) => { st.matte = e.target.value; schedule(); };
 $('#targetOn').onchange = (e) => { st.targetOn = e.target.checked; changed(); if (st.targetOn) $('#targetInput').focus(); };
 $('#targetInput').onchange = (e) => { st.targetMB = Math.max(0.1, +e.target.value || 5); e.target.value = st.targetMB; changed(); };
-$('#autoSplit').onclick = () => st.diffs && autoSplit();
-$('#addClip').onclick = () => st.diffs && addClip();
-$('#clearClips').onclick = () => setClips([], 0);
+$('#splitClip').onclick = () => st.diffs && splitClip();
+$('#resetClips').onclick = () => setClips([], 0);
 $('#dlBtn').onclick = download;
-// Enter in a number field applies it right away
 $$('input[type=number]').forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.blur(); }));
 
 startWorkers();

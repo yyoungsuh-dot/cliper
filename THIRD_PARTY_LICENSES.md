@@ -26,3 +26,9 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## Mediabunny 1.66.4
+
+https://github.com/Vanilagy/mediabunny — used unmodified as `vendor/mediabunny.min.js` for reading video files and writing MP4.
+
+Licensed under the Mozilla Public License 2.0. The full license text is in `vendor/MEDIABUNNY-LICENSE.txt`; the source code is available at the link above.

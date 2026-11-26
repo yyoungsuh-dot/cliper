@@ -146,3 +146,93 @@ class GifPlayer {
   toggle() { this.playing ? this.pause() : this.play(); return this.playing; }
   seek(i) { this.pause(); this.show(i); }
 }
+
+/* Plays the PNG frames we built (one Blob per frame) on a canvas. Same interface as GifPlayer. */
+class PngSeqPlayer {
+  constructor(canvas, onFrame) {
+    this.cv = canvas; this.ctx = canvas.getContext('2d'); this.onFrame = onFrame;
+    this.frames = null; this.delays = null; this.cache = []; this.useCache = false;
+    this.idx = 0; this.playing = true; this.timer = 0; this.token = 0;
+  }
+  get count() { return this.frames ? this.frames.length : 0; }
+  load(data, keepIndex) {
+    this.clear();
+    this.frames = data.frames; this.delays = data.delays;
+    this.cv.width = data.w; this.cv.height = data.h;
+    this.useCache = data.w * data.h * 4 * this.frames.length < 400 * 1024 * 1024;
+    this.idx = keepIndex != null ? Math.min(keepIndex, this.count - 1) : 0;
+    this.show(this.idx).then(() => { if (this.playing) this.schedule(); });
+  }
+  clear() {
+    clearTimeout(this.timer); this.token++;
+    this.cache.forEach((b) => b?.close?.()); this.cache = []; this.frames = null;
+    this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+  }
+  async show(i) {
+    if (!this.frames) return;
+    const tok = ++this.token;
+    this.idx = i;
+    let bmp = this.cache[i];
+    if (!bmp) {
+      bmp = await createImageBitmap(this.frames[i]);
+      if (tok !== this.token) { bmp.close(); return; }
+      if (this.useCache) this.cache[i] = bmp;
+    }
+    this.ctx.clearRect(0, 0, this.cv.width, this.cv.height);
+    this.ctx.drawImage(bmp, 0, 0);
+    if (!this.useCache) bmp.close();
+    this.onFrame?.(i);
+  }
+  schedule() {
+    clearTimeout(this.timer);
+    const t0 = performance.now();
+    const ms = Math.max(10, this.delays[this.idx] * 10);
+    this.timer = setTimeout(async () => {
+      if (!this.playing || !this.frames) return;
+      await this.show((this.idx + 1) % this.count);
+      if (this.playing) this.schedule();
+    }, Math.max(0, ms - (performance.now() - t0)));
+  }
+  play() { if (!this.frames) return; this.playing = true; this.schedule(); }
+  pause() { this.playing = false; clearTimeout(this.timer); }
+  toggle() { this.playing ? this.pause() : this.play(); return this.playing; }
+  seek(i) { this.pause(); this.show(i); }
+}
+
+/* Wraps a <video> element for the MP4 preview. Same interface as GifPlayer. */
+class VideoPlayer {
+  constructor(video, onFrame) {
+    this.v = video; this.onFrame = onFrame; this.fps = 30; this.n = 0; this.starts = [];
+    this.idx = 0; this.playing = true; this.loaded = false;
+    const tick = (now, meta) => {
+      if (this.loaded) {
+        const i = this.frameAt(meta.mediaTime);
+        if (i !== this.idx) { this.idx = i; this.onFrame?.(i); }
+      }
+      this.v.requestVideoFrameCallback(tick);
+    };
+    if (this.v.requestVideoFrameCallback) this.v.requestVideoFrameCallback(tick);
+  }
+  get count() { return this.n; }
+  frameAt(t) {
+    // starts[] holds each frame's start time in seconds
+    let lo = 0, hi = this.n - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.starts[mid] <= t + 1e-4) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+  load(data, keepIndex) {
+    this.n = data.starts.length; this.starts = data.starts; this.loaded = true;
+    this.v.src = data.url; this.v.loop = true; this.v.muted = true; this.v.playsInline = true;
+    this.idx = keepIndex != null ? Math.min(keepIndex, this.n - 1) : 0;
+    const go = () => {
+      this.v.currentTime = this.starts[this.idx] + 0.001;
+      if (this.playing) this.v.play().catch(() => {}); else this.onFrame?.(this.idx);
+    };
+    if (this.v.readyState >= 1) go(); else this.v.addEventListener('loadedmetadata', go, { once: true });
+  }
+  clear() { this.loaded = false; this.v.pause(); this.v.removeAttribute('src'); this.v.load(); }
+  play() { this.playing = true; this.v.play().catch(() => {}); }
+  pause() { this.playing = false; this.v.pause(); }
+  toggle() { this.playing ? this.pause() : this.play(); return this.playing; }
+  seek(i) { this.pause(); this.idx = i; this.v.currentTime = this.starts[i] + 0.001; this.onFrame?.(i); }
+}

@@ -1,7 +1,7 @@
 {
-  "name": "PNG → GIF",
-  "short_name": "PNG → GIF",
-  "description": "Turn a PNG sequence into a GIF, right in your browser. No uploads.",
+  "name": "Framecut",
+  "short_name": "Framecut",
+  "description": "Trim and split videos or PNG sequences, then export GIF, MP4 or PNG. No uploads.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

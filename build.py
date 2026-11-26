@@ -8,6 +8,7 @@ parts = {
     "/*GIFENC*/": (src / "gifenc.min.js").read_text(),
     "/*WORKER*/": (src / "worker.js").read_text(),
     "/*PLAYER*/": (src / "player.js").read_text(),
+    "/*COLOR*/": (src / "colorpicker.js").read_text(),
     "/*APP*/": (src / "app.js").read_text(),
 }
 for key, code in parts.items():
