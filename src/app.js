@@ -22,7 +22,7 @@ const st = {
   kind: 'png', name: '', n: 0, files: [], video: null, srcFps: null,
   baseW: 0, baseH: 0, sizes: [], hasAlpha: false, diffs: null, thumbs: [],
   format: 'gif', fps: 30, w: 0, h: 0, lock: true, dedupe: false,
-  alphaMode: 'keep', matte: '#FFFFFF', targetOn: false, targetMB: 5,
+  alphaMode: 'keep', matte: '#FFFFFF', matteA: 100, targetOn: false, targetMB: 5,
   clips: [],          // [{s, e}] 0-based, inclusive; always at least one once loaded
   sel: 0,
   results: new Map(), // key → result
@@ -54,7 +54,7 @@ const segments = () => st.clips;
 const sig = () => {
   const f = st.format;
   return JSON.stringify([f, f !== 'png' && st.fps, st.w, st.h, f === 'gif' && st.dedupe,
-    st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte, f !== 'png' && st.targetOn && st.targetMB]);
+    st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte + st.matteA, f !== 'png' && st.targetOn && st.targetMB]);
 };
 const keyOf = (g, s = sig()) => `${s}|${g.s}-${g.e}`;
 const resultFor = (i) => { const g = st.clips[i]; return g ? st.results.get(keyOf(g)) : null; };
@@ -80,8 +80,9 @@ function buildPlan(g, fit = 1) {
   const fill = st.hasAlpha && (st.format === 'mp4' || st.alphaMode === 'matte');
   return {
     s: g.s, e: g.e, outW, outH, frames,
-    keepAlpha: st.hasAlpha && !fill,
-    matte: fill ? st.matte : null,
+    // a see-through fill keeps alpha (PNG: as is, GIF: 50% cut-off); MP4 has no alpha and is blended over black
+    keepAlpha: st.hasAlpha && (!fill || (st.format !== 'mp4' && st.matteA < 100)),
+    matte: fill ? matteCss() : null,
     minDelay,
     totalCs: frames.reduce((s, f) => s + f.delay, 0),
   };
@@ -340,8 +341,7 @@ function renderControls() {
   $$('#alphaSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.alphaMode));
   $('#matteRow').hidden = !(f === 'mp4' || st.alphaMode === 'matte');
   if ($('#matteRow').hidden || $('#alphaGroup').hidden) openPicker(false); else placePicker();
-  $('#matteSw').style.background = st.matte;
-  $('#matteHex').textContent = st.matte;
+  renderSwatch();
   $('#targetCard').hidden = f === 'png';
   $('#targetOn').checked = st.targetOn;
   $('#targetInput').disabled = !st.targetOn;
@@ -779,9 +779,18 @@ function toast(msg) {
 }
 
 /* ---------- Color picker ---------- */
+function matteCss() {
+  const [r, g, b] = CP.parseHex(st.matte);
+  return st.matteA >= 100 ? st.matte : `rgba(${r}, ${g}, ${b}, ${st.matteA / 100})`;
+}
+function renderSwatch() {
+  $('#matteSw').style.setProperty('--fill', matteCss());
+  $('#matteHex').textContent = st.matte;
+  $('#matteA').textContent = st.matteA + '%';
+}
 const picker = new ColorPicker($('#cp'), {
-  value: st.matte,
-  onChange: (hex) => { st.matte = hex; $('#matteSw').style.background = hex; $('#matteHex').textContent = hex; schedule(); },
+  value: st.matte, alpha: st.matteA,
+  onChange: (hex, a) => { st.matte = hex; st.matteA = a; renderSwatch(); schedule(); },
 });
 // Figma-style: the picker floats to the left of the settings column, next to the swatch
 function placePicker() {

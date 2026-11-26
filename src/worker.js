@@ -121,7 +121,7 @@ async function load(m) {
 
 /* ---------- Rendering ---------- */
 let rcv = null, rctx = null;
-function draw(f, outW, outH, matte) {
+function draw(f, outW, outH, matte, base) {
   if (!rcv || rcv.width !== outW || rcv.height !== outH) {
     rcv = new OffscreenCanvas(outW, outH);
     rctx = rcv.getContext('2d', { willReadFrequently: true });
@@ -129,6 +129,7 @@ function draw(f, outW, outH, matte) {
   const sx = outW / source.w, sy = outH / source.h;
   rctx.setTransform(1, 0, 0, 1, 0, 0);
   rctx.clearRect(0, 0, outW, outH);
+  if (base) { rctx.fillStyle = base; rctx.fillRect(0, 0, outW, outH); }
   if (matte) { rctx.fillStyle = matte; rctx.fillRect(0, 0, outW, outH); }
   rctx.imageSmoothingEnabled = true;
   rctx.imageSmoothingQuality = 'high';
@@ -244,7 +245,7 @@ async function encode(m) {
   let t = 0;
   for await (const f of source.frames(want)) {
     if (stale('encode', m.id)) { await output.cancel?.(); return; }
-    const ctx = draw(f, plan.outW, plan.outH, plan.matte || '#000000');
+    const ctx = draw(f, plan.outW, plan.outH, plan.matte, '#000000');
     cctx.drawImage(ctx.canvas, 0, 0);
     const dur = delayOf.get(f.i) / 100;
     await vsrc.add(t, dur);

@@ -244,11 +244,12 @@ aside .card > .title + * { margin-top: 12px; }
 }
 #matteBtn:hover { background: var(--field-hover); }
 #matteSw { width: 24px; height: 24px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); flex: none; }
-#matteBtn .chev { margin-left: auto; color: var(--g500); transition: transform .2s; }
+#matteSw { background-color: #fff; background-image: conic-gradient(#d1d6db 25%, transparent 0 50%, #d1d6db 0 75%, transparent 0); background-size: 8px 8px; position: relative; overflow: hidden; }
+#matteSw::after { content: ""; position: absolute; inset: 0; background: var(--fill, #fff); }
+#matteA { margin-left: auto; color: var(--g500); font-weight: 600; }
 #matteBtn[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--blue); background: var(--card); }
-#matteBtn .chev { transform: rotate(90deg); }
 .cp-panel {
-  position: fixed; z-index: 45; width: 268px; padding: 0 14px 14px; border-radius: 16px; background: var(--card);
+  position: fixed; z-index: 45; width: 340px; padding: 0 14px 14px; border-radius: 16px; background: var(--card);
   box-shadow: 0 16px 48px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.06);
 }
 .cp-head { height: 46px; display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 700; color: var(--g900); }
@@ -261,14 +262,22 @@ aside .card > .title + * { margin-top: 12px; }
 .cp-row { display: flex; align-items: center; gap: 10px; }
 .cp-eye { width: 40px; height: 40px; flex: none; border: 0; border-radius: 12px; background: var(--field); color: var(--g700); display: grid; place-items: center; }
 .cp-eye:hover { color: var(--blue); }
-.cp-hue { position: relative; flex: 1; height: 14px; border-radius: 7px; cursor: pointer; touch-action: none;
+.cp-sliders { flex: 1; min-width: 0; display: grid; gap: 12px; padding: 0 9px; }
+.cp-hue, .cp-alpha { position: relative; height: 14px; border-radius: 7px; cursor: pointer; touch-action: none; }
+.cp-hue {
   background: linear-gradient(90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
-.cp-hthumb { position: absolute; top: 50%; width: 20px; height: 20px; border-radius: 50%; transform: translate(-50%, -50%); border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 2px 6px rgba(0,0,0,.2); pointer-events: none; }
-.cp-mode { height: 40px; border: 0; border-radius: 12px; background: var(--field); padding: 0 8px; font-size: 13px; font-weight: 700; color: var(--g700); flex: none; }
-.cp-fields { display: flex; gap: 6px; flex: 1; min-width: 0; }
-.cp-f { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px; border-radius: 12px; background: var(--field); }
+.cp-alpha { background-color: #fff; background-image: conic-gradient(#d1d6db 25%, transparent 0 50%, #d1d6db 0 75%, transparent 0); background-size: 8px 8px; }
+.cp-agrad { position: absolute; inset: 0; border-radius: 7px; }
+.cp-athumb { background: #fff; }
+.cp-athumb::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--fill); }
+.cp-sthumb, .cp-hthumb { position: absolute; top: 50%; width: 20px; height: 20px; border-radius: 50%; transform: translate(-50%, -50%); border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 2px 6px rgba(0,0,0,.2); pointer-events: none; }
+.cp-mode { height: 40px; border: 0; border-radius: 12px; padding: 0 26px 0 10px; -webkit-appearance: none; appearance: none; cursor: pointer;
+  background: var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b95a1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 9px center; font-size: 13px; font-weight: 700; color: var(--g700); flex: none; }
+.cp-fields { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.cp-fields.hex .cp-f.hex { flex: 2.2; }
+.cp-f { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 7px; border-radius: 12px; background: var(--field); }
 .cp-f span { color: var(--g500); font-size: 12px; font-weight: 700; }
-.cp-f input { width: 100%; min-width: 0; border: 0; outline: 0; background: none; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; text-transform: uppercase; }
+.cp-f input { width: 100%; min-width: 0; border: 0; outline: 0; background: none; font-size: 13.5px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; text-transform: uppercase; }
 .cp-f:focus-within { box-shadow: inset 0 0 0 2px var(--blue); }
 
 /* Result */
@@ -422,8 +431,7 @@ aside .card > .title + * { margin-top: 12px; }
         <button data-v="keep">Keep transparent</button><button data-v="matte">Fill background</button>
       </div>
       <div id="matteRow">
-        <button id="matteBtn" type="button" aria-expanded="false" aria-controls="cp"><span id="matteSw"></span><span id="matteHex">#FFFFFF</span>
-          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button id="matteBtn" type="button" aria-expanded="false" aria-controls="cp"><span id="matteSw"></span><span id="matteHex">#FFFFFF</span><span id="matteA"></span></button>
       </div>
     </section>
 
@@ -589,7 +597,7 @@ async function load(m) {
 
 /* ---------- Rendering ---------- */
 let rcv = null, rctx = null;
-function draw(f, outW, outH, matte) {
+function draw(f, outW, outH, matte, base) {
   if (!rcv || rcv.width !== outW || rcv.height !== outH) {
     rcv = new OffscreenCanvas(outW, outH);
     rctx = rcv.getContext('2d', { willReadFrequently: true });
@@ -597,6 +605,7 @@ function draw(f, outW, outH, matte) {
   const sx = outW / source.w, sy = outH / source.h;
   rctx.setTransform(1, 0, 0, 1, 0, 0);
   rctx.clearRect(0, 0, outW, outH);
+  if (base) { rctx.fillStyle = base; rctx.fillRect(0, 0, outW, outH); }
   if (matte) { rctx.fillStyle = matte; rctx.fillRect(0, 0, outW, outH); }
   rctx.imageSmoothingEnabled = true;
   rctx.imageSmoothingQuality = 'high';
@@ -712,7 +721,7 @@ async function encode(m) {
   let t = 0;
   for await (const f of source.frames(want)) {
     if (stale('encode', m.id)) { await output.cancel?.(); return; }
-    const ctx = draw(f, plan.outW, plan.outH, plan.matte || '#000000');
+    const ctx = draw(f, plan.outW, plan.outH, plan.matte, '#000000');
     cctx.drawImage(ctx.canvas, 0, 0);
     const dur = delayOf.get(f.i) / 100;
     await vsrc.add(t, dur);
@@ -981,7 +990,7 @@ class VideoPlayer {
 
 /* Color picker (vanilla JS port of the shadcn-style ColorPicker):
  * saturation/brightness area, hue slider, eyedropper, and HEX / RGB / HSL fields.
- * No alpha slider: GIF and MP4 can't store a semi-transparent background. */
+ * Opacity: true alpha in PNG; GIF keeps pixels at 50%+ opacity; MP4 blends over black. */
 'use strict';
 
 const CP = {
@@ -1022,8 +1031,8 @@ const CP = {
 };
 
 class ColorPicker {
-  constructor(root, { value = '#FFFFFF', onChange } = {}) {
-    this.root = root; this.onChange = onChange; this.mode = 'hex';
+  constructor(root, { value = '#FFFFFF', alpha = 100, onChange } = {}) {
+    this.root = root; this.onChange = onChange; this.mode = 'hex'; this.a = alpha;
     root.classList.add('cp');
     root.innerHTML = `
       <div class="cp-area"><div class="cp-thumb"></div></div>
@@ -1031,7 +1040,10 @@ class ColorPicker {
         <button type="button" class="cp-eye" aria-label="Pick a color from the screen">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>
         </button>
-        <div class="cp-hue"><div class="cp-hthumb"></div></div>
+        <div class="cp-sliders">
+          <div class="cp-hue" aria-label="Hue"><div class="cp-sthumb cp-hthumb"></div></div>
+          <div class="cp-alpha" aria-label="Opacity"><div class="cp-agrad"></div><div class="cp-sthumb cp-athumb"></div></div>
+        </div>
       </div>
       <div class="cp-row">
         <select class="cp-mode" aria-label="Color format"><option value="hex">HEX</option><option value="rgb">RGB</option><option value="hsl">HSL</option></select>
@@ -1041,6 +1053,9 @@ class ColorPicker {
     this.thumb = root.querySelector('.cp-thumb');
     this.hue = root.querySelector('.cp-hue');
     this.hthumb = root.querySelector('.cp-hthumb');
+    this.alpha = root.querySelector('.cp-alpha');
+    this.agrad = root.querySelector('.cp-agrad');
+    this.athumb = root.querySelector('.cp-athumb');
     this.fields = root.querySelector('.cp-fields');
     const eye = root.querySelector('.cp-eye');
     if (!('EyeDropper' in window)) eye.hidden = true;
@@ -1050,6 +1065,7 @@ class ColorPicker {
     root.querySelector('.cp-mode').onchange = (e) => { this.mode = e.target.value; this.renderFields(); };
     this.drag(this.area, (x, y) => { this.s = x; this.v = 1 - y; this.update(true); });
     this.drag(this.hue, (x) => { this.h = x * 360; this.update(true); });
+    this.drag(this.alpha, (x) => { this.a = Math.round(x * 100); this.update(true); });
     this.set(value, false);
   }
   drag(el, fn) {
@@ -1075,24 +1091,30 @@ class ColorPicker {
     this.update(emit);
   }
   update(emit) {
+    const [r, g, b] = this.rgb;
     this.area.style.background = `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${this.h}, 100%, 50%))`;
     this.thumb.style.left = this.s * 100 + '%';
     this.thumb.style.top = (1 - this.v) * 100 + '%';
     this.thumb.style.background = this.value;
     this.hthumb.style.left = (this.h / 360) * 100 + '%';
     this.hthumb.style.background = `hsl(${this.h}, 100%, 50%)`;
+    this.agrad.style.background = `linear-gradient(to right, rgba(${r},${g},${b},0), rgb(${r},${g},${b}))`;
+    this.athumb.style.left = this.a + '%';
+    this.athumb.style.setProperty('--fill', `rgba(${r},${g},${b},${this.a / 100})`);
     this.renderFields();
-    if (emit) this.onChange?.(this.value);
+    if (emit) this.onChange?.(this.value, this.a);
   }
   renderFields() {
     const active = document.activeElement;
     if (active && this.fields.contains(active)) return; // don't overwrite what the user is typing
     const [r, g, b] = this.rgb;
-    const vals = this.mode === 'hex' ? [this.value.slice(1)] : this.mode === 'rgb' ? [r, g, b] : CP.rgbToHsl(r, g, b);
-    const labels = this.mode === 'hex' ? ['#'] : this.mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'L'];
+    const vals = (this.mode === 'hex' ? [this.value.slice(1)] : this.mode === 'rgb' ? [r, g, b] : CP.rgbToHsl(r, g, b)).concat(this.a);
+    const labels = (this.mode === 'hex' ? ['#'] : this.mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'L']);
     if (this.fields.dataset.mode !== this.mode) {
       this.fields.dataset.mode = this.mode;
-      this.fields.innerHTML = labels.map((l, i) => `<label class="cp-f${this.mode === 'hex' ? ' wide' : ''}"><span>${l}</span><input data-i="${i}" ${this.mode === 'hex' ? 'maxlength="7"' : 'inputmode="numeric"'} spellcheck="false"></label>`).join('');
+      this.fields.className = 'cp-fields ' + this.mode;
+      this.fields.innerHTML = labels.map((l, i) => `<label class="cp-f${this.mode === 'hex' ? ' hex' : ''}"><span>${l}</span><input data-i="${i}" ${this.mode === 'hex' ? 'maxlength="7"' : 'inputmode="numeric"'} spellcheck="false" aria-label="${l === '#' ? 'Hex' : l}"></label>`).join('')
+        + `<label class="cp-f pct"><input data-i="a" inputmode="numeric" aria-label="Opacity"><span>%</span></label>`;
       this.fields.querySelectorAll('input').forEach((inp) => {
         inp.addEventListener('change', () => this.fromFields());
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
@@ -1101,7 +1123,10 @@ class ColorPicker {
     this.fields.querySelectorAll('input').forEach((inp, i) => (inp.value = vals[i]));
   }
   fromFields() {
-    const v = [...this.fields.querySelectorAll('input')].map((i) => i.value);
+    const inputs = [...this.fields.querySelectorAll('input')];
+    const v = inputs.map((i) => i.value);
+    const aIn = Math.round(+String(v.pop()).replace('%', ''));
+    if (Number.isFinite(aIn)) this.a = Math.max(0, Math.min(100, aIn));
     let rgb = null;
     if (this.mode === 'hex') rgb = CP.parseHex(v[0]);
     else {
@@ -1112,7 +1137,8 @@ class ColorPicker {
       }
     }
     this.fields.dataset.mode = '';
-    if (rgb) this.set(rgb, true); else this.renderFields();
+    if (document.activeElement && this.fields.contains(document.activeElement)) document.activeElement.blur();
+    if (rgb) this.set(rgb, true); else this.update(true);
   }
 }
 
@@ -1140,7 +1166,7 @@ const st = {
   kind: 'png', name: '', n: 0, files: [], video: null, srcFps: null,
   baseW: 0, baseH: 0, sizes: [], hasAlpha: false, diffs: null, thumbs: [],
   format: 'gif', fps: 30, w: 0, h: 0, lock: true, dedupe: false,
-  alphaMode: 'keep', matte: '#FFFFFF', targetOn: false, targetMB: 5,
+  alphaMode: 'keep', matte: '#FFFFFF', matteA: 100, targetOn: false, targetMB: 5,
   clips: [],          // [{s, e}] 0-based, inclusive; always at least one once loaded
   sel: 0,
   results: new Map(), // key → result
@@ -1172,7 +1198,7 @@ const segments = () => st.clips;
 const sig = () => {
   const f = st.format;
   return JSON.stringify([f, f !== 'png' && st.fps, st.w, st.h, f === 'gif' && st.dedupe,
-    st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte, f !== 'png' && st.targetOn && st.targetMB]);
+    st.hasAlpha && (f === 'mp4' ? 'matte' : st.alphaMode), st.hasAlpha && st.matte + st.matteA, f !== 'png' && st.targetOn && st.targetMB]);
 };
 const keyOf = (g, s = sig()) => `${s}|${g.s}-${g.e}`;
 const resultFor = (i) => { const g = st.clips[i]; return g ? st.results.get(keyOf(g)) : null; };
@@ -1198,8 +1224,9 @@ function buildPlan(g, fit = 1) {
   const fill = st.hasAlpha && (st.format === 'mp4' || st.alphaMode === 'matte');
   return {
     s: g.s, e: g.e, outW, outH, frames,
-    keepAlpha: st.hasAlpha && !fill,
-    matte: fill ? st.matte : null,
+    // a see-through fill keeps alpha (PNG: as is, GIF: 50% cut-off); MP4 has no alpha and is blended over black
+    keepAlpha: st.hasAlpha && (!fill || (st.format !== 'mp4' && st.matteA < 100)),
+    matte: fill ? matteCss() : null,
     minDelay,
     totalCs: frames.reduce((s, f) => s + f.delay, 0),
   };
@@ -1458,8 +1485,7 @@ function renderControls() {
   $$('#alphaSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.alphaMode));
   $('#matteRow').hidden = !(f === 'mp4' || st.alphaMode === 'matte');
   if ($('#matteRow').hidden || $('#alphaGroup').hidden) openPicker(false); else placePicker();
-  $('#matteSw').style.background = st.matte;
-  $('#matteHex').textContent = st.matte;
+  renderSwatch();
   $('#targetCard').hidden = f === 'png';
   $('#targetOn').checked = st.targetOn;
   $('#targetInput').disabled = !st.targetOn;
@@ -1897,9 +1923,18 @@ function toast(msg) {
 }
 
 /* ---------- Color picker ---------- */
+function matteCss() {
+  const [r, g, b] = CP.parseHex(st.matte);
+  return st.matteA >= 100 ? st.matte : `rgba(${r}, ${g}, ${b}, ${st.matteA / 100})`;
+}
+function renderSwatch() {
+  $('#matteSw').style.setProperty('--fill', matteCss());
+  $('#matteHex').textContent = st.matte;
+  $('#matteA').textContent = st.matteA + '%';
+}
 const picker = new ColorPicker($('#cp'), {
-  value: st.matte,
-  onChange: (hex) => { st.matte = hex; $('#matteSw').style.background = hex; $('#matteHex').textContent = hex; schedule(); },
+  value: st.matte, alpha: st.matteA,
+  onChange: (hex, a) => { st.matte = hex; st.matteA = a; renderSwatch(); schedule(); },
 });
 // Figma-style: the picker floats to the left of the settings column, next to the swatch
 function placePicker() {

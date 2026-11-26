@@ -1,6 +1,6 @@
 /* Color picker (vanilla JS port of the shadcn-style ColorPicker):
  * saturation/brightness area, hue slider, eyedropper, and HEX / RGB / HSL fields.
- * No alpha slider: GIF and MP4 can't store a semi-transparent background. */
+ * Opacity: true alpha in PNG; GIF keeps pixels at 50%+ opacity; MP4 blends over black. */
 'use strict';
 
 const CP = {
@@ -41,8 +41,8 @@ const CP = {
 };
 
 class ColorPicker {
-  constructor(root, { value = '#FFFFFF', onChange } = {}) {
-    this.root = root; this.onChange = onChange; this.mode = 'hex';
+  constructor(root, { value = '#FFFFFF', alpha = 100, onChange } = {}) {
+    this.root = root; this.onChange = onChange; this.mode = 'hex'; this.a = alpha;
     root.classList.add('cp');
     root.innerHTML = `
       <div class="cp-area"><div class="cp-thumb"></div></div>
@@ -50,7 +50,10 @@ class ColorPicker {
         <button type="button" class="cp-eye" aria-label="Pick a color from the screen">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>
         </button>
-        <div class="cp-hue"><div class="cp-hthumb"></div></div>
+        <div class="cp-sliders">
+          <div class="cp-hue" aria-label="Hue"><div class="cp-sthumb cp-hthumb"></div></div>
+          <div class="cp-alpha" aria-label="Opacity"><div class="cp-agrad"></div><div class="cp-sthumb cp-athumb"></div></div>
+        </div>
       </div>
       <div class="cp-row">
         <select class="cp-mode" aria-label="Color format"><option value="hex">HEX</option><option value="rgb">RGB</option><option value="hsl">HSL</option></select>
@@ -60,6 +63,9 @@ class ColorPicker {
     this.thumb = root.querySelector('.cp-thumb');
     this.hue = root.querySelector('.cp-hue');
     this.hthumb = root.querySelector('.cp-hthumb');
+    this.alpha = root.querySelector('.cp-alpha');
+    this.agrad = root.querySelector('.cp-agrad');
+    this.athumb = root.querySelector('.cp-athumb');
     this.fields = root.querySelector('.cp-fields');
     const eye = root.querySelector('.cp-eye');
     if (!('EyeDropper' in window)) eye.hidden = true;
@@ -69,6 +75,7 @@ class ColorPicker {
     root.querySelector('.cp-mode').onchange = (e) => { this.mode = e.target.value; this.renderFields(); };
     this.drag(this.area, (x, y) => { this.s = x; this.v = 1 - y; this.update(true); });
     this.drag(this.hue, (x) => { this.h = x * 360; this.update(true); });
+    this.drag(this.alpha, (x) => { this.a = Math.round(x * 100); this.update(true); });
     this.set(value, false);
   }
   drag(el, fn) {
@@ -94,24 +101,30 @@ class ColorPicker {
     this.update(emit);
   }
   update(emit) {
+    const [r, g, b] = this.rgb;
     this.area.style.background = `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${this.h}, 100%, 50%))`;
     this.thumb.style.left = this.s * 100 + '%';
     this.thumb.style.top = (1 - this.v) * 100 + '%';
     this.thumb.style.background = this.value;
     this.hthumb.style.left = (this.h / 360) * 100 + '%';
     this.hthumb.style.background = `hsl(${this.h}, 100%, 50%)`;
+    this.agrad.style.background = `linear-gradient(to right, rgba(${r},${g},${b},0), rgb(${r},${g},${b}))`;
+    this.athumb.style.left = this.a + '%';
+    this.athumb.style.setProperty('--fill', `rgba(${r},${g},${b},${this.a / 100})`);
     this.renderFields();
-    if (emit) this.onChange?.(this.value);
+    if (emit) this.onChange?.(this.value, this.a);
   }
   renderFields() {
     const active = document.activeElement;
     if (active && this.fields.contains(active)) return; // don't overwrite what the user is typing
     const [r, g, b] = this.rgb;
-    const vals = this.mode === 'hex' ? [this.value.slice(1)] : this.mode === 'rgb' ? [r, g, b] : CP.rgbToHsl(r, g, b);
-    const labels = this.mode === 'hex' ? ['#'] : this.mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'L'];
+    const vals = (this.mode === 'hex' ? [this.value.slice(1)] : this.mode === 'rgb' ? [r, g, b] : CP.rgbToHsl(r, g, b)).concat(this.a);
+    const labels = (this.mode === 'hex' ? ['#'] : this.mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'L']);
     if (this.fields.dataset.mode !== this.mode) {
       this.fields.dataset.mode = this.mode;
-      this.fields.innerHTML = labels.map((l, i) => `<label class="cp-f${this.mode === 'hex' ? ' wide' : ''}"><span>${l}</span><input data-i="${i}" ${this.mode === 'hex' ? 'maxlength="7"' : 'inputmode="numeric"'} spellcheck="false"></label>`).join('');
+      this.fields.className = 'cp-fields ' + this.mode;
+      this.fields.innerHTML = labels.map((l, i) => `<label class="cp-f${this.mode === 'hex' ? ' hex' : ''}"><span>${l}</span><input data-i="${i}" ${this.mode === 'hex' ? 'maxlength="7"' : 'inputmode="numeric"'} spellcheck="false" aria-label="${l === '#' ? 'Hex' : l}"></label>`).join('')
+        + `<label class="cp-f pct"><input data-i="a" inputmode="numeric" aria-label="Opacity"><span>%</span></label>`;
       this.fields.querySelectorAll('input').forEach((inp) => {
         inp.addEventListener('change', () => this.fromFields());
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
@@ -120,7 +133,10 @@ class ColorPicker {
     this.fields.querySelectorAll('input').forEach((inp, i) => (inp.value = vals[i]));
   }
   fromFields() {
-    const v = [...this.fields.querySelectorAll('input')].map((i) => i.value);
+    const inputs = [...this.fields.querySelectorAll('input')];
+    const v = inputs.map((i) => i.value);
+    const aIn = Math.round(+String(v.pop()).replace('%', ''));
+    if (Number.isFinite(aIn)) this.a = Math.max(0, Math.min(100, aIn));
     let rgb = null;
     if (this.mode === 'hex') rgb = CP.parseHex(v[0]);
     else {
@@ -131,6 +147,7 @@ class ColorPicker {
       }
     }
     this.fields.dataset.mode = '';
-    if (rgb) this.set(rgb, true); else this.renderFields();
+    if (document.activeElement && this.fields.contains(document.activeElement)) document.activeElement.blur();
+    if (rgb) this.set(rgb, true); else this.update(true);
   }
 }
