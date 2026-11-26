@@ -506,11 +506,22 @@ function renderPlayState() {
   const p = shownFmt ? players[shownFmt] : null;
   $('#playIcon').hidden = !p || p.playing || !$('#busy').hidden;
 }
-$('#viewer').onclick = () => {
+function togglePlayback() {
   if (!shownFmt || !$('#busy').hidden) return;
   wantPlaying = player().toggle();
   renderPlayState();
-};
+}
+$('#viewer').onclick = togglePlayback;
+// Space plays / pauses, except while typing in a field
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+  if ($('#editor').hidden) return;
+  e.preventDefault(); // no page scroll, and no "click" on a focused button
+  if (t.tagName === 'BUTTON') t.blur();
+  togglePlayback();
+});
 
 /* ---------- Download ---------- */
 async function download() {
