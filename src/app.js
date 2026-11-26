@@ -339,6 +339,7 @@ function renderControls() {
   $('#alphaSeg').hidden = f === 'mp4';
   $$('#alphaSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.alphaMode));
   $('#matteRow').hidden = !(f === 'mp4' || st.alphaMode === 'matte');
+  if ($('#matteRow').hidden || $('#alphaGroup').hidden) openPicker(false); else placePicker();
   $('#matteSw').style.background = st.matte;
   $('#matteHex').textContent = st.matte;
   $('#targetCard').hidden = f === 'png';
@@ -782,11 +783,29 @@ const picker = new ColorPicker($('#cp'), {
   value: st.matte,
   onChange: (hex) => { st.matte = hex; $('#matteSw').style.background = hex; $('#matteHex').textContent = hex; schedule(); },
 });
-$('#matteBtn').onclick = () => {
-  const open = $('#cp').hidden;
-  $('#cp').hidden = !open;
+// Figma-style: the picker floats to the left of the settings column, next to the swatch
+function placePicker() {
+  const panel = $('#cpPanel');
+  if (panel.hidden || innerWidth <= 820) return;
+  const btn = $('#matteBtn').getBoundingClientRect(), side = $('aside').getBoundingClientRect();
+  const h = panel.offsetHeight;
+  panel.style.left = Math.max(12, side.left - 12 - panel.offsetWidth) + 'px';
+  panel.style.top = Math.max(12, Math.min(btn.top - 8, innerHeight - h - 12)) + 'px';
+}
+function openPicker(open) {
+  $('#cpPanel').hidden = !open;
   $('#matteBtn').setAttribute('aria-expanded', open);
-};
+  if (open) placePicker();
+}
+$('#matteBtn').onclick = (e) => { e.stopPropagation(); openPicker($('#cpPanel').hidden); };
+$('#cpClose').onclick = () => openPicker(false);
+addEventListener('pointerdown', (e) => {
+  if (!$('#cpPanel').hidden && !$('#cpPanel').contains(e.target) && !$('#matteBtn').contains(e.target)) openPicker(false);
+});
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#cpPanel').hidden) openPicker(false); });
+addEventListener('resize', placePicker);
+$('aside').addEventListener('scroll', placePicker, { passive: true });
+addEventListener('scroll', placePicker, { passive: true });
 
 /* ---------- Events ---------- */
 let dragDepth = 0;
