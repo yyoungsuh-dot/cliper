@@ -812,7 +812,7 @@ const picker = new ColorPicker($('#cp'), {
 // Figma-style: the picker floats to the left of the settings column, next to the swatch
 function placePicker() {
   const panel = $('#cpPanel');
-  if (panel.hidden || innerWidth <= 820) return;
+  if (panel.hidden || innerWidth <= 720) return;
   const btn = $('#matteBtn').getBoundingClientRect(), side = $('aside').getBoundingClientRect();
   const h = panel.offsetHeight;
   panel.style.left = Math.max(12, side.left - 12 - panel.offsetWidth) + 'px';
